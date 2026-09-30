@@ -1,26 +1,23 @@
-# The Pause — a phased AI development methodology
+# The Pause - a phased AI development methodology
 
 > *The value is in the pause, not the speed.*
 
-A shareable bundle of Claude Code **skills**, **slash commands**, **engineering standards**, and
-**hooks** that encode a specific way of building software with an AI agent: plan adversarially,
-implement test-first, review cold — across three deliberately separate sessions, with a human
-checkpoint at every boundary.
+Skills, slash commands, standards and hooks for building software with an AI agent in three
+separate sessions: plan, implement, review. A human decides at every boundary.
 
-This repo exists so the methodology can be **handed to another person or team** and adopted in an
-afternoon, instead of living only in one engineer's `~/.claude` directory.
+An agent is most dangerous when it is confident and unsupervised across a large change. So the work
+is split into three roles, **Planner**, **Implementer** and **Reviewer**, each in its own session.
+The skills do the mechanics inside a phase. You own the transitions.
 
-> **The core idea:** an AI agent is most dangerous when it's confident and unsupervised across a
-> large change. So we split the work into three roles — **Planner**, **Implementer**, **Reviewer** —
-> run each in its own session, and force a human decision between phases. The skills automate the
-> mechanics within each phase; the human owns the transitions.
+Everything here is local files you copy or link into place. Nothing to install, nothing phones home.
 
 ---
 
 ## The workflow at a glance
 
-A brand-new feature flows through **three sessions** (think: three terminal tabs, or three
-Claude Code windows). Each produces committed artifacts the next one consumes.
+A feature goes through three sessions (three terminal tabs, or three Claude Code windows). Each one
+commits files the next one reads. That committed spec is the bridge between sessions, not chat
+history.
 
 ```mermaid
 flowchart TD
@@ -43,129 +40,120 @@ flowchart TD
     M --> F["/close-change &lt;feature&gt;<br/><small>on develop: PRD/ADR status, prune issues + reviews,<br/>docs grep, fixtures + full suite, debt check</small>"]
 ```
 
-Why separate sessions? Context isolation. The reviewer must not "remember" the planning rationale —
-it should judge the diff against the written spec exactly as a fresh reviewer would. Splitting
-sessions is what makes the cold review honest.
+Why separate sessions: the reviewer must not remember the planning rationale. It judges the diff
+against the written spec, the way a new reviewer would. That is what keeps the review honest.
 
-### The three sessions, live
-
-In practice the three roles live as separate terminal tabs (**Architect**, **Developer**, **Reviewer**).
-A typical moment: the **Developer** tab is mid-run — `implement-change` has read the PRD and all six issue
-stubs, printed the **dependency DAG and serial order** (each issue's `Blocked by` line threads the
-slices together), and **halted for a pre-flight check** before cutting the feature branch and
-starting to build.
+In practice the tabs are named **Architect**, **Developer** and **Reviewer**. A typical moment: the
+Developer tab has read the PRD and six issue stubs, printed the dependency order (each issue's
+`Blocked by` line links the slices), and stopped for a pre-flight check before cutting the branch.
 
 ---
 
-## Session 1 — Planner / Architect
+## Session 1 - Planner
 
-**Goal:** reach genuine shared understanding of *what* to build, captured as committed artifacts —
-before a line of implementation code is written.
+Goal: agree on *what* to build and commit it, before any implementation code.
 
 ### `grill-change [KEY]`
-Start from a feature description, a doc or a wiki page pasted into the session — or from a
-ticket key (`grill-change PROJ-123`), in which case the skill fetches the ticket and quotes it first.
-It then runs Matt Pocock's `grilling` and `domain-modeling` skills: it **interviews you relentlessly**, one decision at a time, walking down the design tree and giving its
-recommended answer at each branch. As decisions crystallise it updates two things inline:
 
-- **`CONTEXT.md`** — the project's domain glossary (domain language *only*; no implementation
-  detail, no spec content). When you use a term that conflicts with the glossary, it calls it out.
-- **`docs/adr/`** — an Architecture Decision Record, offered *sparingly* (only when a decision is
-  hard to reverse, surprising without context, and the result of a real trade-off).
+Start from an idea, a doc or a wiki page pasted into the session. Or pass a ticket key
+(`grill-change PROJ-123`) and the skill fetches the ticket and quotes it back first.
 
-You stop when you and the agent agree on what needs to be built.
+It then runs Matt Pocock's `grilling` and `domain-modeling` skills. It interviews you one decision
+at a time, down the design tree, with its recommended answer at each branch. Along the way it
+updates:
+
+- **`CONTEXT.md`** - the domain glossary. Domain language only, no implementation detail. It calls
+  out terms you use that conflict with it.
+- **`docs/adr/`** - an ADR, offered sparingly: only for decisions that are hard to reverse,
+  surprising without context, and the result of a real trade-off.
+
+You stop when you and the agent agree on what to build.
 
 ### `to-prd <feature-name>`
-Synthesizes a **Product Requirements Document** from the grilling context — it does *not* re-interview
-you. Output: `docs/features/<feature-name>/prd.md` (problem, solution, user stories, implementation
-decisions, testing decisions, out-of-scope).
+
+Writes the PRD from the grilling. It does not interview you again. Output:
+`docs/features/<feature-name>/prd.md` (problem, solution, user stories, implementation and testing
+decisions, out of scope).
 
 ### `to-md-issues <feature-name>`
-Slices the PRD into **vertical tracer-bullet issues** — each a thin, end-to-end path through every
-layer, demoable on its own. Each issue is classified on two axes: **Type** (`AFK` = agent can build
-it / `HITL` = a human must decide something first) and **Verification** (`AFK` / `HITL` = a human
-must confirm it works). Output: `docs/features/<feature-name>/issues/<NN>_<slug>.md`, numbered in
-dependency order.
 
-**End of Session 1:** commit `CONTEXT.md`, `docs/adr/*`, `prd.md`, and `issues/*` to `develop`.
+Slices the PRD into vertical tracer-bullet issues: thin end-to-end paths, each demoable on its own.
+Each issue gets a **Type** (`AFK`: the agent can build it, `HITL`: a human decides something first)
+and a **Verification** (`AFK`, or `HITL`: a human confirms it works). Output:
+`docs/features/<feature-name>/issues/<NN>_<slug>.md`, numbered in dependency order.
+
+**End of session 1:** commit `CONTEXT.md`, `docs/adr/*`, `prd.md` and `issues/*` to `develop`.
 
 ---
 
-## Session 2 — Implementer
+## Session 2 - Implementer
 
 ### `implement-change <feature-name>`
-Cuts a `feature/<feature-name>` branch off `develop`, then walks the issue stubs **serially, one at a
-time**:
 
-- spawns a subagent per issue, driving the **`tdd`** skill (red → green → refactor),
-- runs the issue's new tests, then the **full suite**, when the subagent returns — a feature may break
-  something existing, so both must be green,
-- **commits to the feature branch on green**, then advances to the next issue.
+Cuts `feature/<feature-name>` off `develop` and walks the issues one at a time:
 
-The same skill implements a rework ticket (`implement-change PROJ-123`): the work items are then the
-numbered steps in `docs/rework/PROJ-123/ticket.md`, step 0 is always the characterisation tests that
-pin current behaviour, and the branch is `rework/PROJ-123`.
+- one subagent per issue, driving the `tdd` skill (red, green, refactor)
+- when it returns: the issue's new tests, then the unit tier; both must be green
+- commit on green, then the next issue
 
-It runs unattended *except* at **HITL** issues — those it hands to you and stops. No worktrees, no
-parallelism, no per-issue review checkpoint: the output is a clean sequence of commits on
-`feature/<feature-name>`.
+The slow tiers (integration, e2e) run once at the end of the run, not per issue.
 
-> This methodology ships only the **auto** (serial, unattended) implementer. A parallel,
-> review-checkpointed variant exists in the wild but is intentionally not included here — start
-> simple.
+It runs unattended except at `HITL` issues, where it stops and hands over to you. No worktrees, no
+parallelism. The output is a clean sequence of commits on the feature branch.
 
-**End of Session 2:** all work committed to `feature/<feature-name>`.
+The same skill implements a rework ticket (`implement-change PROJ-123`). The work items are then the
+numbered steps in `docs/rework/PROJ-123/ticket.md`, step 0 is always the characterisation tests, and
+the branch is `rework/PROJ-123`.
 
 ---
 
-## Session 3 — Reviewer
+## Session 3 - Reviewer
 
 ### `review-change <feature-name>`
-Run this in a **fresh session with no planning context** — that's the whole point. It:
 
-- diffs `feature/<feature-name>` against `develop` with `git`,
-- reads `prd.md` and the issue stubs as the **spec** the work is judged against,
-- writes findings — split into **blockers**, **nits**, and **questions** (clarifications it needs
-  from you) — to `docs/features/<feature-name>/reviews/round-NN.md`.
+Run it in a fresh session with no planning context. It diffs the feature branch against `develop`,
+reads `prd.md` and the issues as the spec, and writes findings to
+`docs/features/<feature-name>/reviews/round-NN.md`:
 
-**The loop:** feed `round-NN.md` back to Session 2, fix, then re-run `review-change` (it writes
-`round-02.md`, `round-03.md`, …). Repeat until a round comes back with **no blockers, no nits, no
-questions**. Then merge, and run `/close-change <feature-name>` on the integration branch: it
-sets the PRD and ADR status, deletes the issue stubs and review rounds, greps the docs for identifiers
-the release removed, and confirms fixtures are tracked and the full suite passes. A feature is not
-done until it has run clean.
+- **re-grill** - a decision that goes back to planning
+- **blockers**, **nits**, **questions** - for the implementer or for you
 
-### Hardening test quality — `mutation-testing`
-Once tests are green and the review is clean, optionally run `mutation-testing` to find gaps in test
-*quality*: it injects code mutations and reports which ones your tests fail to catch (a surviving
-mutant = a test gap). It asks you for the tool, source paths, and exclusions before running.
+Each finding is tagged `introduced`, `amplified` or `pre-existing`, so you can tell what the branch
+caused from what it only surfaced.
+
+**The loop:** take `round-NN.md` back to session 2, fix, and review again (`round-02.md`, ...).
+Repeat until a round is clean. Then merge and run `close-change <feature-name>` on `develop`. It sets
+the PRD and ADR status, deletes the issue stubs and review rounds, greps the docs for anything the
+change removed, and runs every test tier. The change is not done until it runs clean.
+
+### `mutation-testing` (optional)
+
+After a clean review, finds gaps in test quality: it mutates the code and reports the mutants your
+tests don't catch. It asks for the tool, paths and exclusions before running.
 
 ---
 
-## The rework lane — tickets, not features
+## The rework lane - tickets, not features
 
-Not every change is a feature. A refactor, a dead-code removal, a docs prune or a ticket-driven
-improvement that leaves behaviour unchanged has no user stories to slice, so a PRD would be ceremony.
-The rework lane keeps the same four sessions and the same shared skills, and swaps only the
-planning artefact:
+A refactor, a dead-code removal or a cleanup ticket leaves behaviour unchanged. It has no user
+stories, so a PRD would be ceremony. The rework lane keeps the same sessions and skills and swaps
+only the spec:
 
 | Stage | Feature lane | Rework lane |
 |---|---|---|
-| Understand | `grill-change` on the idea | `grill-change <KEY>` — fetches the ticket, quotes it, then grills you |
-| Freeze | `to-prd` + `to-md-issues` → `docs/features/<name>/` | `to-rework <KEY>` → `docs/rework/<KEY>/ticket.md`: ticket, plan, **Acceptance**, numbered **Steps** |
-| Implement | `implement-change <name>` on `feature/<name>`, one commit per issue | `implement-change <KEY>` on `rework/<KEY>`, one commit per step; **step 0 is always the characterisation tests** that pin current behaviour |
+| Understand | `grill-change` on the idea | `grill-change <KEY>`: fetches the ticket, quotes it, grills you |
+| Freeze | `to-prd` + `to-md-issues` -> `docs/features/<name>/` | `to-rework <KEY>` -> `docs/rework/<KEY>/ticket.md`: ticket, plan, **Acceptance**, numbered **Steps** |
+| Implement | `implement-change <name>` on `feature/<name>`, one commit per issue | `implement-change <KEY>` on `rework/<KEY>`, one commit per step; **step 0 is the characterisation tests** |
 | Review | `review-change <name>` against the PRD and issues | `review-change <KEY>` against `ticket.md`; the bar is "behaviour unchanged" |
-| Close | `close-change <name>`: status headers, prune `issues/` + `reviews/` | `close-change <KEY>`: delete `docs/rework/<KEY>/` — the tracker is the record |
+| Close | `close-change <name>`: status headers, prune `issues/` + `reviews/` | `close-change <KEY>`: delete `docs/rework/<KEY>/`; the tracker is the record |
 
-The three downstream skills resolve the lane from which spec exists (`grill-change` takes it from its argument), so you never tell them which lane
-you are in. The commit that lands `ticket.md` on `develop` before the branch is cut, and the
-`Close <KEY>` commit that deletes it after the merge, are the two markers of a rework in history.
+You never tell the skills which lane you are in. They work it out from which spec exists
+(`grill-change` from its argument).
 
-### The two lanes side by side — and where the branch is cut
+### The two lanes side by side, and where the branch is cut
 
-Nothing before `implement-change` touches a git branch. Session 1 ends with the spec committed on
-`develop`, so the change branch, when it is cut, already contains it — the implementer and the
-reviewer find the spec in their checkout without merging anything.
+Nothing before `implement-change` touches a branch. Session 1 commits the spec to `develop`, so the
+change branch already contains it when it is cut.
 
 ```text
 Feature lane                            Rework lane
@@ -191,17 +179,17 @@ close-change <name>     (on develop)    close-change <KEY>        (on develop)
 
 ---
 
-## Supporting skills & commands
+## Supporting skills and commands
 
-| Tool | Role |
+| Tool | What it does |
 |------|------|
-| `to-rework` | Freeze a grilled rework ticket into `docs/rework/<KEY>/ticket.md` — ticket, plan, Acceptance, numbered Steps with step 0 = characterisation tests. The rework twin of `to-prd`. |
-| `close-change` | Close a shipped change (feature or rework ticket) so the repo matches reality: status headers, prune `issues/` + `reviews/`, docs-drift grep, fixture + suite check, debt pass. Run at the merge or version-bump commit. |
-| `handoff` | Compact one session's context into a hand-off doc for the next — the practical bridge **between the three sessions/tabs**. |
-| `diagnose` | Disciplined debugging loop (reproduce → minimise → hypothesise → instrument → fix → regression-test) for hard bugs and perf regressions. |
-| `/check` | Run the full quality gate (lint, format, type-check, security scan, tests). *Python/Databricks-specific.* |
-| `/debt-check` | Scan current work for cognitive debt — magic numbers, undocumented business rules, unvalidated assumptions. |
-| `/debt-review` | Summarise accumulated cognitive debt from `.claude/cognitive_debt.md` into a prioritised action list. |
+| `to-rework` | Freezes a grilled rework ticket into `docs/rework/<KEY>/ticket.md`. The rework twin of `to-prd`. |
+| `close-change` | Closes a merged change so the repo matches reality: status headers, prune specs, docs grep, every test tier, debt check. |
+| `handoff` | Compacts the current session into a hand-off doc. Ad hoc, not part of the lanes: use it to pass work to another session or repo, or when a session's context gets large (say 400k+ tokens): `/handoff`, `/clear`, and carry on from the doc. |
+| `diagnose` | A debugging loop for hard bugs and perf regressions: reproduce, minimise, hypothesise, instrument, fix, regression-test. |
+| `/check` | Runs the quality gate: lint, format, type-check, security scan, tests. Python/Databricks only. |
+| `/debt-check` | Flags cognitive debt in current work: magic numbers, undocumented business rules, unvalidated assumptions. |
+| `/debt-review` | Turns `.claude/cognitive_debt.md` into a prioritised action list. |
 
 ---
 
@@ -233,60 +221,46 @@ the-pause/
 
 ---
 
-## Adopting it on your machine
+## Setup
 
-1. **Standards.** Copy `standards/CLAUDE.md` to the root of your repo as `CLAUDE.md`, and copy
-   `standards/rules/testing.md` into `<repo>/.claude/rules/`. If you're on Python + Databricks, also
-   copy `python-tooling.md` and `databricks-pipelines.md` there. Rules load alongside `CLAUDE.md` at
-   session start; keeping each file under ~200 lines is what keeps adherence high, so don't
-   concatenate them. The `## Agent skills` block at the top of `CLAUDE.md` is **pre-configured for
-   local-markdown issues** — no setup step required.
+1. **Standards.** Copy `standards/CLAUDE.md` to your repo root as `CLAUDE.md`, and
+   `standards/rules/testing.md` to `<repo>/.claude/rules/`. On Python + Databricks, add
+   `python-tooling.md` and `databricks-pipelines.md` there too. Keep them as separate files, each
+   under ~200 lines; that is what keeps the agent following them. The `## Agent skills` block in
+   `CLAUDE.md` is already set up for local markdown issues.
 
-2. **Skills.** Symlink each directory under `skills/` into `~/.claude/skills/` (user-wide) or
-   `<repo>/.claude/skills/` (per-project) — `ln -s <the-pause>/skills/<name> ~/.claude/skills/<name>`,
-   one link per skill so the profile can hold skills of its own beside them. A link makes this
-   checkout the single source of truth: an edit here is live in the next session, so edit on
-   `main` and commit promptly. Copy instead of linking only if the profile lives on another machine.
-   Read `ATTRIBUTION.md` first — you may prefer to install
-   Matt Pocock's three vendored skills directly from
-   [`mattpocock/skills`](https://github.com/mattpocock/skills) rather than use the copies here.
-   `grill-change` additionally needs his `grilling` and `domain-modeling` skills installed from
-   that repository; they are not vendored.
+2. **Skills.** Symlink each skill into `~/.claude/skills/` (user-wide) or `<repo>/.claude/skills/`:
+   `ln -s <the-pause>/skills/<name> ~/.claude/skills/<name>`. One link per skill, so your own skills
+   can sit beside them. An edit here is then live in your next session. Copy instead only if the
+   profile is on another machine.
+   `grill-change` also needs Matt Pocock's `grilling` and `domain-modeling` skills, installed from
+   [`mattpocock/skills`](https://github.com/mattpocock/skills); they are not vendored. You can take
+   his three vendored skills from there too. See `ATTRIBUTION.md`.
 
-3. **Commands.** Copy `commands/*.md` into `~/.claude/commands/` (or `<repo>/.claude/commands/`).
-   `/check` assumes Python/Databricks — adapt or skip it otherwise.
+3. **Commands.** Copy `commands/*.md` into `~/.claude/commands/` or `<repo>/.claude/commands/`.
+   `/check` assumes Python/Databricks; adapt or skip it.
 
 4. **Hook (optional).** Copy `hooks/capture_decisions.sh` to `<repo>/.claude/hooks/` and merge the
-   `PostToolUse` entries from `settings.example.json` into your `.claude/settings.json`. This
-   auto-captures `# DECISION:` / `# ASSUMPTION NEEDED:` / `# DEBT:` comments into
-   `.claude/cognitive_debt.md` (currently Python-file-scoped).
-
-There is **no external install and nothing phones home** — everything here is local files you copy
-into place.
+   `PostToolUse` entries from `settings.example.json` into `.claude/settings.json`. It collects
+   `# DECISION:`, `# ASSUMPTION NEEDED:` and `# DEBT:` comments into `.claude/cognitive_debt.md`
+   (Python files only, for now).
 
 ---
 
 ## Evolution of the planning phase
 
-Earlier versions of this workflow planned with two slash commands that produced static documents:
+Planning used to be two slash commands, `/research` and `/spec`, that each wrote a document for
+sign-off. They are kept under `commands/_deprecated/` as history. Don't use them.
 
-- `/research` — write a research document analysing the code, then get sign-off.
-- `/spec` — write a structured spec, then get sign-off.
-
-These are preserved under `commands/_deprecated/` for historical reference and are **superseded** by
-the grilling skills. The shift: a one-shot document you write *for* the human gets rubber-stamped;
-an **adversarial interview** that forces a decision at every branch of the design tree surfaces the
-disagreements a static doc papers over. `grill-with-docs` (today wrapped by `grill-change`) replaced `/research` + `/spec` because the
-*conversation* is where shared understanding actually forms — and it drops the durable output
-(`CONTEXT.md`, ADRs, then the PRD) as a side effect of the dialogue rather than as the goal.
-
-Don't use the deprecated commands in the current workflow; they're documentation of why the
-methodology changed.
+A document written *for* the human gets rubber-stamped. An interview that forces a decision at every
+branch surfaces the disagreements a document hides. So the grilling skills replaced them: the
+conversation is where the shared understanding forms, and `CONTEXT.md`, the ADRs and the PRD fall
+out of it.
 
 ---
 
 ## Credits
 
-The planning and TDD skills originate with **Matt Pocock** ([`mattpocock/skills`](https://github.com/mattpocock/skills)).
-See [`ATTRIBUTION.md`](./ATTRIBUTION.md) for a precise breakdown of what was authored where, what was
-derived, and what is original to this repo.
+The planning and TDD skills come from **Matt Pocock**
+([`mattpocock/skills`](https://github.com/mattpocock/skills)). [`ATTRIBUTION.md`](./ATTRIBUTION.md)
+says exactly what is his, what is derived, and what is original here.
