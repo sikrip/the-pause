@@ -1,0 +1,30 @@
+# macOS
+.DS_Store
+__MACOSX/
+._*
+
+# Scratch images (README assets under assets/ are kept)
+*.png
+*.jpg
+*.jpeg
+!assets/
+!assets/**
+
+# Local notes and secrets
+*.local.md
+.env
+.env.*
+
+# Editor / IDE
+.idea/
+.vscode/
+*.iml
+
+# Python (mutation-testing script)
+__pycache__/
+*.pyc
+.venv/
+
+# Claude Code local state (never commit a real session's state)
+.claude/cognitive_debt.md
+.claude/settings.local.json

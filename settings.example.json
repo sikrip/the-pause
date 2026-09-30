@@ -1,0 +1,25 @@
+{
+  "_comment": "Example Claude Code settings for the the-pause methodology. Copy the bits you want into your project's .claude/settings.json (or ~/.claude/settings.json). The two hooks below are the only project-specific behaviours this methodology relies on. Personal tooling (rtk, custom statusline) and external marketplace plugins from the author's machine are intentionally omitted — add your own if you use them.",
+
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "_comment": "Python only: auto-run ruff lint --fix + format on any .py file Claude edits. Remove this hook if you're not on Python. See standards/rules/python-tooling.md for the import/orphan caveat.",
+            "type": "command",
+            "command": "bash -c 'FILE_PATH=$(jq -r \".tool_input.file_path // empty\"); if [[ \"$FILE_PATH\" == *.py ]]; then .venv/bin/ruff check --fix --quiet \"$FILE_PATH\" 2>/dev/null; .venv/bin/ruff format --quiet \"$FILE_PATH\" 2>/dev/null; fi; exit 0'"
+          },
+          {
+            "_comment": "Stack-agnostic: scan each edited file for DECISION/ASSUMPTION/DEBT markers and append new ones to .claude/cognitive_debt.md. Feeds /debt-check and /debt-review. Adjust the path to wherever you place the hook script.",
+            "type": "command",
+            "command": "bash -c 'FILE_PATH=$(jq -r \".tool_input.file_path // empty\"); [[ -n \"$FILE_PATH\" ]] && bash .claude/hooks/capture_decisions.sh \"$FILE_PATH\"; exit 0'"
+          }
+        ]
+      }
+    ]
+  },
+
+  "effortLevel": "high"
+}
