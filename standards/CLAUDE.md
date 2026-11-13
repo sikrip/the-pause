@@ -199,6 +199,6 @@ Per-diff review cannot see cross-commit rot. A change that went through a lane i
 until it has run clean, it is not ready to merge. It greps the docs for identifiers the change
 removed or renamed, confirms fixtures are tracked and the full suite passes, runs `/debt-check`,
 then sets the PRD and ADR status and deletes the issue stubs (the merge request is the record). The
-fixture and suite steps stand in for CI until CI exists. The whole change — spec, code, close — lives on one branch. Nothing is
-committed to the integration branch directly: every change, in a lane or not, reaches it through the
-team's merge request, which the skills' review does not replace.
+fixture and suite steps stand in for CI until CI exists. The whole change — spec, code, close —
+lives on one branch. Nothing is committed to the integration branch directly: every change, in a
+lane or not, reaches it through the team's merge request, which the skills' review does not replace.

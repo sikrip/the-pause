@@ -23,7 +23,7 @@ The PRD is written as a markdown file at:
 ./docs/features/<feature-name>/prd.md
 ```
 
-(relative to the project root, i.e. the current working directory). Create the `./docs/features/<feature-name>/` directory if it does not exist. This file is committed to git alongside the code that implements the feature — it is not a personal scratchpad. Do not publish to an issue tracker — output is markdown-only.
+(relative to the project root, i.e. the current working directory). Create the `./docs/features/<feature-name>/` directory if it does not exist. If there is no spec here but a branch `feature/<feature-name>` already exists (`git branch -a --list '*feature/<feature-name>'`), stop: the change is in flight there, and writing a new spec from this branch would plan it twice. This file is committed to git alongside the code that implements the feature — it is not a personal scratchpad. Do not publish to an issue tracker — output is markdown-only.
 
 ## If the PRD already exists — amend it, do not rewrite it
 
@@ -32,9 +32,10 @@ Re-grill finding from review, merge request feedback that changes what is built,
 mind. This session holds the amendment, not the original grilling, so regenerating the PRD from the
 conversation would silently drop everything that was not re-discussed.
 
-- Read the existing PRD in full first. If it carries `> Status: implemented`, stop: on its own change
-  branch the close commit must be reverted first, and anywhere else the feature has shipped and the
-  new work needs a new feature name.
+- Read the existing PRD in full first. If it carries `> Status: implemented`, stop. With a
+  `Close <feature-name>` commit not yet merged into the integration branch, the change was closed:
+  the close commit must be reverted first. Otherwise the feature has shipped and the new work needs
+  a new feature name.
 - Change only the sections the reopened decision touches. Leave every other line as it is.
 - User stories keep their numbers, because issue stubs cite them. Add new stories at the end of the
   list. A story that no longer holds is struck through with a one-line reason, not deleted.

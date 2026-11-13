@@ -145,16 +145,18 @@ A clean round is one whose verdict is `merge-ready`: no re-grill findings, no bl
 branch introduced or made worse, no open questions. Findings that predate the branch and that it did
 not make worse never hold the verdict; they are listed as follow-ups. (The exception: what a rework
 ticket set out to fix.) Answers to questions, and findings you decide not to fix, are given in the
-reviewer session, which records them in the round. You can drop a finding during the round with a reason.
+reviewer session, which records them in the round. You can drop a finding during the round with a
+reason.
 
-**Sync before closing.** `develop` moves while you work. When a round is clean, merge
-the current `develop` into the change branch (`git fetch`, then `git merge origin/develop`; your
-local `develop` may be stale). Merge, never rebase: later rounds narrow from recorded SHAs. If the
-merge is clean and touches no file the branch changed (`CONTEXT.md` and the ADRs aside), you are
-done and `close-change` accepts it.
-If it has a conflict or shares a file with the branch, run `review-change` once more: that round
-skips what arrived from `develop` and reads only the conflict resolutions and the shared files.
-`close-change` refuses a branch that is behind `develop`.
+**Sync before closing.** `develop` moves while you work. When a round is clean, merge the current
+`develop` into the change branch (`git fetch`, then `git merge origin/develop`, or your remote's
+name; your local `develop` may be stale). Merge, never rebase: later rounds narrow from recorded
+SHAs. If the merge is clean and touches no file the branch changed (`CONTEXT.md` and the ADRs
+aside), you are done and `close-change` accepts it. If it has a conflict or shares a file with the
+branch, run `review-change` once more: that round skips what arrived from `develop` and reads only
+the conflict resolutions and the shared files. `close-change` refuses a branch that is behind
+`develop`.
+
 
 ### `mutation-testing` (optional)
 
@@ -275,7 +277,7 @@ They skip both lanes:
 The test for which route applies is not size: would grilling have a real question to ask? If the
 work means deciding what the behaviour should be, changing a contract, or reshaping code whose
 behaviour has to be pinned first, it is a feature or a rework. If that turns out to be the case
-half-way through, stop, discard or park the partial work, and start the lane from `grill-change`. An
+half-way through, stop, commit or discard the partial work, and start the lane from `grill-change`. An
 ordinary change gets no cold review from `review-change`, only the merge request's.
 
 ---

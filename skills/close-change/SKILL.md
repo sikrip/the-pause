@@ -38,11 +38,13 @@ Optional positional arg:
 - **Integration branch.** The merge request's target, used as the diff base. Default:
   `integration_branch` in the `implement-change` config file (`.implement-change.config.json`, or
   `.claude/implement-change.config.json`) when one exists, else `develop`.
-  Resolve it once, after a best-effort `git fetch`, and use that one ref wherever a command below
-  says `<integration_branch>`: the remote-tracking ref (`origin/<integration_branch>`, or the same
-  on whichever remote the change branch tracks) when `git rev-parse --verify -q` finds it, otherwise
-  the local branch. A local integration branch that nobody fast-forwarded is stale, and a stale base
-  makes other people's merged work look like this change's.
+  Resolve it once and use that one ref wherever a command below
+  says `<integration_branch>`: the remote-tracking ref `<remote>/<integration_branch>` when
+  `git rev-parse --verify -q` finds it, otherwise the local branch — where `<remote>` is `origin` if
+  that remote exists, else the repo's only remote (with several remotes and no `origin`, ask),
+  fetched explicitly with a best-effort `git fetch <remote>`. A local integration branch that nobody
+  fast-forwarded is stale, and a stale base makes other people's merged work look like this
+  change's.
 
 ## Preconditions — halt on any failure
 
@@ -205,10 +207,10 @@ description is where the human reviewer sees them:
 - **Follow-ups** — `pre-existing` findings from the rounds, stale doc claims the user chose to file
   and debt findings.
 
-Print it to the conversation for the user to paste. End by naming the next step, which is the
-user's: commit, push the branch and open the merge request, and delete the local
-`<spec-dir>/reviews/` once it has merged. In the rework lane, add a one-line reminder to close the
-ticket in the tracker then too.
+Print it to the conversation for the user to paste. End by naming what is left: the close commit,
+which this skill makes on the user's OK; then the user's own steps — push the branch, open the
+merge request, and delete the local `<spec-dir>/reviews/` once it has merged. In the rework lane,
+add a one-line reminder to close the ticket in the tracker then too.
 
 ## After the close commit
 
@@ -231,7 +233,8 @@ reviewers ask for takes one of two routes, and the test is whether it changes wh
   3. `implement-change <name> <NN>` for the new items, `review-change` (a full sweep, because the
      spec changed), the sync, and this skill again.
 
-  **Rework lane:** feedback that asks a rework to change behaviour is not an amendment. A rework in
+  **Rework lane:** feedback that asks a rework to change behaviour is not an amendment, and the
+  close commit is **not** reverted for it. A rework in
   progress is never converted into a feature. It is finished and merged as the behaviour-preserving
   change it is, or abandoned, and the behaviour change is planned afterwards as a separate feature.
 
