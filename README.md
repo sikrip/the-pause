@@ -35,11 +35,12 @@ flowchart TD
 
     C -->|"cut feature/&lt;feature&gt; off develop;<br/>commit CONTEXT.md, docs/adr/*,<br/>prd.md, issues/* to it"| D
     D -->|"all work on feature/&lt;feature&gt;"| E
-    E -->|"round-NN.md: blockers / nits / questions<br/>(another round needed)"| D
-    E ==>|"clean round — no blockers,<br/>nits or questions — then<br/>merge develop in"| F["/close-change &lt;feature&gt;<br/><small>on feature/&lt;feature&gt;: docs grep, fixtures + full suite,<br/>debt check, PRD/ADR status, prune issues;<br/>drafts the MR description</small>"]
+    E -->|"round-NN.md: blockers / nits / questions<br/>→ /implement-change &lt;feature&gt; --fix"| D
+    E ==>|"clean round<br/>(verdict: merge-ready),<br/>then merge develop in"| F["/close-change &lt;feature&gt;<br/><small>on feature/&lt;feature&gt;: docs grep, fixtures + full suite,<br/>debt check, PRD/ADR status, prune issues;<br/>drafts the MR description</small>"]
     F ==> R["Merge request &nbsp;<small>feature/&lt;feature&gt; → develop</small><br/><small>team review and approval, as usual</small>"]
-    R -->|"MR feedback:<br/>a fix"| D
-    R -->|"MR feedback: changes<br/>what is built"| A
+    E -->|"re-grill finding"| A
+    R -->|"MR feedback: a fix<br/>(on the branch, no skills)"| R
+    R -->|"MR feedback: changes what is built<br/>(revert the close first)"| A
     R ==>|"approved"| M([Merge feature/&lt;feature&gt; into develop])
 ```
 
@@ -71,6 +72,12 @@ updates:
   surprising without context, and the result of a real trade-off.
 
 You stop when you and the agent agree on what to build.
+
+A change already in progress can be reopened: by a re-grill finding from review, or by MR feedback
+that changes what is built. Run `grill-change <name>` on the change branch (after a close, revert
+the close commit first: it restores the spec the skills look for). It reads the frozen
+spec, grills only the reopened decision, and the freeze skills then amend the spec in place: issue
+and step numbers never change, and anything already implemented is never edited.
 
 ### `to-prd <feature-name>`
 
@@ -129,13 +136,22 @@ copy the `reviews/` directory over. Findings:
 Each finding is tagged `introduced`, `amplified` or `pre-existing`, so you can tell what the branch
 caused from what it only surfaced.
 
-**The loop:** take `round-NN.md` back to session 2, fix, and review again (`round-02.md`, ...).
-Repeat until a round is clean.
+**The loop:** back in the session 2 tab, run `implement-change <feature-name> --fix`. It reads the
+latest round by itself, shows what it will fix, skip (re-grill findings) and hand back to you
+(questions), then fixes behind the same test gates: one commit per blocker, one for all the nits.
+Then review again (`round-02.md`, ...). Repeat until a round is clean.
 
-**Sync before closing.** `develop` moves while you work. When a round has nothing left to fix, merge
+A clean round is one whose verdict is `merge-ready`: no re-grill findings, no blockers, no nits the
+branch introduced or made worse, no open questions. Findings that predate the branch and that it did
+not make worse never hold the verdict; they are listed as follow-ups. (The exception: what a rework
+ticket set out to fix.) Answers to questions, and findings you decide not to fix, are given in the
+reviewer session, which records them in the round. You can drop a finding during the round with a reason.
+
+**Sync before closing.** `develop` moves while you work. When a round is clean, merge
 the current `develop` into the change branch (`git fetch`, then `git merge origin/develop`; your
 local `develop` may be stale). Merge, never rebase: later rounds narrow from recorded SHAs. If the
-merge is clean and touches no file the branch changed, you are done and `close-change` accepts it.
+merge is clean and touches no file the branch changed (`CONTEXT.md` and the ADRs aside), you are
+done and `close-change` accepts it.
 If it has a conflict or shares a file with the branch, run `review-change` once more: that round
 skips what arrived from `develop` and reads only the conflict resolutions and the shared files.
 `close-change` refuses a branch that is behind `develop`.
@@ -174,11 +190,14 @@ MR feedback takes one of two routes, and the test is whether it changes what is 
 
 - **A fix** (a bug, a name, a missed case): fix it on the branch like on any MR. Re-run the tests
   with CI or the project's test command; the skills are not re-run.
-- **A change to what is built:** that is a planning change. Revert the close commit, write the
-  feedback into the spec (a new issue, or a new step in the rework ticket), then implement, review,
-  sync and close again. A rework asked to change behaviour has become a feature: it goes back to
-  `grill-change`. Without the spec edit, the cold reviewer would flag the requested change as
-  a deviation.
+- **A change to what is built:** that is a planning change, and the spec has to say it before the
+  code does. Revert the close commit, run `grill-change <name>` with the feedback, let the freeze
+  skills amend the spec, then implement the new items, review, sync and close again. Without the
+  spec edit, the cold reviewer would flag the requested change as a deviation.
+
+A rework is never converted into a feature mid-flight. If reviewers ask a refactor to change
+behaviour, finish and merge the refactor as it is (or abandon it), then plan the behaviour change as
+a separate feature.
 
 After the merge, delete the local `reviews/` directory, and in the rework lane close the ticket in
 the tracker. Nothing else is left to do.
@@ -237,6 +256,30 @@ merge request → develop                 merge request → develop
 
 ---
 
+## Ordinary changes - no lane
+
+Some changes have nothing to decide, so there is nothing to grill and a spec would be ceremony:
+
+- a bugfix that restores behaviour the docs, the spec or the tests already intended;
+- a dependency bump, a docs, config or CI change;
+- a mechanical cleanup too small to need a ticket and a characterisation step.
+
+They skip both lanes:
+
+1. Cut a branch off `develop`. Nothing is committed to `develop` directly, in a lane or out of one.
+2. Work in an ordinary session. For a bugfix, run `diagnose`: reproduce, minimise, fix, and leave a
+   regression test where there is a seam for one.
+3. Commit with the normal protocol (audit, propose, wait for the OK).
+4. Open the merge request as usual.
+
+The test for which route applies is not size: would grilling have a real question to ask? If the
+work means deciding what the behaviour should be, changing a contract, or reshaping code whose
+behaviour has to be pinned first, it is a feature or a rework. If that turns out to be the case
+half-way through, stop, discard or park the partial work, and start the lane from `grill-change`. An
+ordinary change gets no cold review from `review-change`, only the merge request's.
+
+---
+
 ## Supporting skills and commands
 
 | Tool | What it does |
@@ -289,7 +332,8 @@ the-pause/
    `.gitignore`: `docs/features/*/reviews/` and `docs/rework/*/reviews/` (review rounds are local
    working notes, never committed) and `.claude/implement-change-state.json` (the implementer's
    per-developer state). If the repo already has committed rounds from an earlier version of this
-   workflow, untrack them once: `git rm -r --cached docs/features/*/reviews docs/rework/*/reviews`.
+   workflow, untrack them once:
+   `git rm -r --cached --ignore-unmatch 'docs/features/*/reviews' 'docs/rework/*/reviews'`.
 
 2. **Skills.** Symlink each skill into `~/.claude/skills/` (user-wide) or `<repo>/.claude/skills/`:
    `ln -s <the-pause>/skills/<name> ~/.claude/skills/<name>`. One link per skill, so your own skills

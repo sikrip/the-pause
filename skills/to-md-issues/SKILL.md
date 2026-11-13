@@ -1,6 +1,6 @@
 ---
 name: to-md-issues
-description: Break a plan, spec, or PRD into independently-grabbable issues as markdown files under ./docs/features/<feature-name>/issues/ using tracer-bullet vertical slices. Use when user wants to convert a plan into local issue files (not pushed to GitHub or any issue tracker). Requires a feature name as input.
+description: Break a plan, spec, or PRD into independently-grabbable issues as markdown files under ./docs/features/<feature-name>/issues/ using tracer-bullet vertical slices. If issues already exist, amends them without renumbering. Use when user wants to convert a plan into local issue files (not pushed to GitHub or any issue tracker), or to add issues to a change in progress. Requires a feature name as input.
 ---
 
 <!--
@@ -30,6 +30,25 @@ Each issue is written as a separate markdown file under:
 - `NN` is a zero-padded two-digit ordinal (`01`, `02`, ...) reflecting dependency order — blockers first.
 - `<slug>` is a kebab-case version of the issue title.
 - Create the `./docs/features/<feature-name>/issues/` directory if it does not exist.
+
+## If issues already exist — amend them, do not re-slice
+
+Stubs already under `issues/` mean the change is in progress and the plan was amended (`to-prd`
+amends the PRD first). Read every existing stub, and find which are already implemented:
+`implement-change` leaves one commit per issue with the subject its commit template gives, `NN: <title>` by default, and a human who did a HITL issue by hand commits under the same subject. If `issues/` is empty but the PRD carries `> Status: implemented`, stop: the change was closed, and the close commit must be reverted before it can be amended.
+
+- **Numbers are permanent.** Commits and review rounds cite them. Never renumber and never reuse a
+  number; new stubs are numbered after the highest existing one, and gaps are fine.
+- **New work** is a new stub.
+- **An issue not yet implemented** whose scope changed is edited in place. One that is withdrawn is
+  deleted; git keeps it.
+- **An issue already implemented** is never edited: it records what was built. If the amendment
+  changes what it built, write a new stub that says what changes, with **Blocked by** pointing at
+  the old one.
+- Quiz the user (step 4) on the new and changed slices only.
+
+Afterwards the amended spec is committed on the change branch, which already exists, and the new
+items are implemented with `implement-change <feature-name> <NN> ...`.
 
 ## Process
 
@@ -125,4 +144,4 @@ Or "None — can start immediately" if no blockers.
 
 </issue-template>
 
-Do NOT modify the parent PRD or any other source material. After all files are written, list the created paths back to the user as confirmation, and remind them: cut `feature/<feature-name>` from the up-to-date integration branch and commit the planning files there. The sequence that survives a planning file a teammate also changed: `git fetch` (best-effort), `git stash -u`, `git checkout --no-track -b feature/<feature-name> origin/<integration_branch>` (the local `<integration_branch>` when there is no remote), `git stash pop`, then commit the PRD, issues and any `CONTEXT.md` / ADR updates. A conflict on `git stash pop` — `CONTEXT.md` is the usual one — is a real collision with a plan that merged meanwhile: resolve it before committing; the stash is kept until it is. A re-grill of a change in progress is run on its branch, which already exists: start the planning session there and commit the amended spec to it. Then run `implement-change <feature-name>` on that branch in a fresh session.
+Do NOT modify the parent PRD or any other source material. After all files are written, list the created paths back to the user as confirmation, and remind them: cut `feature/<feature-name>` from the up-to-date integration branch and commit the planning files there. The sequence that survives a planning file a teammate also changed: `git fetch` (best-effort), `git stash -u`, `git checkout --no-track -b feature/<feature-name> origin/<integration_branch>` (the local `<integration_branch>` when there is no remote), `git stash pop`, then commit the PRD, issues and any `CONTEXT.md` / ADR updates. A conflict on `git stash pop` — `CONTEXT.md` is the usual one — is a real collision with a plan that merged meanwhile: resolve it before committing, then `git stash drop`. Then run `implement-change <feature-name>` on that branch in a fresh session.

@@ -1,6 +1,6 @@
 ---
 name: implement-change
-description: Serial, unattended implementation of a change as a sequence of commits on a dedicated branch. Works for both lanes — a feature (work items are the issue stubs under ./docs/features/<name>/issues/) or a rework ticket (work items are the numbered steps in ./docs/rework/<KEY>/ticket.md) — resolving the lane from which spec exists. Works on the change branch the planning session cut and committed the spec to, walks the items one at a time, spawning one subagent per item, running the item's new tests and then the unit tier when it returns, and committing on green before advancing. The integration and e2e tiers run once at the end of the run, not per item. HITL items still stop for human action. No worktrees, no parallelism. Use when the spec is frozen and the user wants batch implementation that lands as one commit per item.
+description: Serial, unattended implementation of a change as a sequence of commits on its change branch. Works for both lanes — a feature (work items are the issue stubs under ./docs/features/<name>/issues/) or a rework ticket (the numbered steps in ./docs/rework/<KEY>/ticket.md) — resolving the lane from which spec exists. Walks the items one at a time on the branch the planning session cut: one subagent per item, the item's new tests and the unit tier, commit on green. Integration and e2e tiers run once at the end. HITL items stop for a human. A second mode, --fix, answers a review round: it fixes the blocking findings (one commit each) and the nits (one commit) in-session behind the same gates, and skips re-grill findings. Use when the spec is frozen and the user wants batch implementation, or when a review round has come back with findings to fix.
 ---
 
 # /implement-change
@@ -18,6 +18,7 @@ Two lanes share this skill. A **feature** is planned with `grill-change` → `to
 /implement-change PROJ-123              # all steps in docs/rework/PROJ-123/ticket.md
 /implement-change PROJ-123 2 3          # subset by step number
 /implement-change --continue            # resume after a HITL or test-failure halt
+/implement-change <name> --fix          # fix the findings of the latest review round
 ```
 
 Zero-config for simple cases; fully configurable via `<repo-root>/.implement-change.config.json` (see [REFERENCE.md](REFERENCE.md)).
@@ -37,6 +38,10 @@ Numeric args filter the resolved items to that subset in either lane.
 - **Commit messages:** `<NN>: <item title>` (e.g. `01: Fix X-pinch snap-back on the Lap Detail speed graph`, `00: Characterisation tests for the orders merge`). Override via `features.<name>.commit_template` in config.
 - **Branch:** `feature/<name>` or `rework/<name>`, cut from `integration_branch` in the planning session, which committed the spec to it. This skill works on it and never creates it. Override the name via `features.<name>.feature_branch_template` / `rework_branch_template`.
 - **HITL detection** applies to a step body exactly as to a stub (see REFERENCE.md).
+
+## Commits without a per-commit OK
+
+The project standards say every commit is audited, proposed and confirmed. A run of this skill is the named exception, in both modes. The plan the user confirms before the first item (workflow step 5, fix-mode step 3) authorises the run's commits; the test gate before each one stands in for the per-commit OK; and the audit the standards ask for is done by `review-change` on the whole branch, not per commit. Nothing else inherits the exception: outside a run, and for the spec and close commits, the standards' protocol applies.
 
 ## Test tiers
 
@@ -72,20 +77,22 @@ The per-item gate is deliberately narrow: it catches what is cheap to catch and 
 3. **Pre-flight checks,** in this order.
    - The current branch must be `<branch>` (`feature/<name>` or `rework/<name>`). If it is not, **stop**: name the current branch and tell the user to check out `<branch>`, or, if it does not exist, to cut it from `<integration_branch>` and commit the spec to it as the planning session should have (an uncommitted spec comes along with `git checkout -b`). Never create the branch and never start on the integration branch. This check comes first so that a dirty tree on the wrong branch is never answered with "commit".
    - Verify the working tree is clean (`git status --porcelain` returns nothing). If not, **stop** and tell the user to stash or commit — the skill will not start on a dirty tree.
-   - Verify the integration branch exists locally.
+   - Resolve the integration branch the way `review-change` and `close-change` do, and use that one ref wherever a command below says `<integration_branch>`: after a best-effort `git fetch`, the remote-tracking ref (`origin/<integration_branch>`) when `git rev-parse --verify -q` finds it, otherwise the local branch. If neither exists, **stop**. A stale local branch makes other people's merged `NN:` commits look like this change's.
+   - Verify the state file is ignored: `git check-ignore -q .claude/implement-change-state.json`. If not, **stop** and tell the user to add it to `.gitignore`; `git add -A` would commit it.
 4. **Sync, and look for an earlier run.**
    - `git pull --ff-only` — best-effort; ignore when offline or when the branch has no upstream. If it cannot fast-forward, **stop** and let the user reconcile.
-   - If the branch already has item commits (`git log <integration_branch>..<branch>` shows subjects matching the commit template), this is not a `--continue` run and no item numbers were given, **stop** and ask the user whether to resume (`--continue` semantics, requires a non-empty state file) or to run only the remaining items. Never silently re-run an item that already has a commit.
+   - If the branch already has item commits (`git log <integration_branch>..<branch>` shows subjects matching the commit template), this is not a `--continue` or `--fix` run and no item numbers were given, **stop** and ask the user whether to resume (`--continue` semantics, requires a non-empty state file) or to run only the remaining items. Never silently re-run an item that already has a commit.
 5. **Plan + confirm.** Show the user: lane, spec path, branch name, the serial order of items, and which are HITL. Wait for explicit OK before launching the first item.
 6. **For each item, in order:**
    - **HITL?** Stop. Surface the item, quote the "why HITL" reason from it, tell the user to drive it manually on the branch (the main checkout is already on it), then resume with `--continue` after they say `done`.
    - **AFK?** Spawn **one** Agent subagent (prompt template in REFERENCE.md). No `isolation: "worktree"` — the subagent works in-place on the branch. It is told to leave changes **uncommitted** so the skill controls when and how to commit.
    - Wait for the subagent to return.
    - **Auto-verify, in this order:**
-     1. **The spec is untouched.** `git status --porcelain -- <spec-dir>` must print nothing. If the subagent edited the PRD, an issue stub or `ticket.md` — ticking its own acceptance boxes counts — **halt**: the implementer does not rewrite the bar it is measured against. The user restores the files (`git checkout -- <spec-dir>`) and continues, or takes the edit to the planning session.
+     1. **The planning files are untouched.** `git status --porcelain -- <spec-dir> CONTEXT.md docs/adr` must print nothing. If the subagent edited the PRD, an issue stub, `ticket.md`, the glossary or an ADR — ticking its own acceptance boxes counts — **halt**: the implementer does not rewrite the bar it is measured against. The user restores them (`git checkout -- <paths>` and `git clean -fd -- <paths>` for added files) and continues, or takes the edit to the planning session.
      2. Surface the agent's one-line summary, open questions, and any unsatisfied acceptance criteria. If any criterion is reported unsatisfied, **halt and ask the user** — do not auto-commit.
      3. **Run the item's new tests** — every test file the agent reported, whatever tier it belongs to, with that tier's `select` command. Fast feedback, and proof the item actually added tests. A rework step after step 0 normally reports none; skip this run in that case and say so.
-     4. **Run the whole unit tier** with `tests.unit.all`. Do **not** run the integration or e2e tiers here — they run once at the end (see step 7). Both lanes commit only on a green unit tier. If either run fails, **halt and report** verbatim. The user resumes with `--continue` (after fixing manually), `push back: <reason>` (respawn) or `skip` (abandon the item).
+     - *Rework lane, every step after step 0:* also run **step 0's characterisation tests** — the test files step 0's commit added (`git show --name-only <step-0-sha>`) — whatever tier they are in. They are what "behaviour unchanged" means, and they are usually integration-tier, so the unit tier alone would let a behaviour-breaking step commit.
+     4. **Run the whole unit tier** with `tests.unit.all`. Do **not** run the integration or e2e tiers here — they run once at the end (see step 7). Both lanes commit only on a green unit tier. If either run fails, **halt and report** verbatim. The user resumes with `--continue` (after fixing manually: the item is re-verified from the top of this list and committed, never carried uncommitted into the next item), `push back: <reason>` (respawn) or `skip` (abandon the item).
      5. *Rework step 0 only:* the characterisation tests must pass against the **unrefactored** code, which is what the tree contains at this point. If they fail, they pin the wrong behaviour — halt; do not "fix" the code to make them pass.
      6. On green, surface `git diff --stat` and a one-line file-list summary as informational output (no approval gate).
    - **Auto-commit onto the branch:**
@@ -99,20 +106,50 @@ The per-item gate is deliberately narrow: it catches what is cheap to catch and 
 7. **Run the deferred tiers once.** After the last item commits, and before declaring the branch ready:
    - **Run the whole integration tier** with `tests.integration.all`.
    - On green, **run the whole e2e tier** with `tests.e2e.all`.
-   - If either fails, **halt and report verbatim**, naming the tier and which item most plausibly introduced the failure (`git log -S` on the failing symbol narrows it). The branch keeps its commits — the fix is a new commit or a `push back` on the offending item, not a silent pass.
+   - If either fails, **halt and report verbatim**, naming the tier and which item most plausibly introduced the failure (`git log -S` on the failing symbol narrows it). The branch keeps its commits, so `push back` and `skip` do not apply here: they only discard uncommitted work. The fix is a new commit, made in this session like a fix-mode finding — unit tier green, then `git commit -m "Fix: <what failed>"`, covered by the run's plan — and then this gate runs again.
    - If a tier is not configured and cannot be resolved by convention, say so explicitly and name it as unrun. Never report a tier as passing when it was skipped.
 8. **End state.** Once the deferred tiers are green:
    - Surface the final `git log <branch> --not <integration_branch> --oneline` showing every commit.
-   - Tell the user: "Branch `<branch>` is ready. Review it with `review-change <name>` in a fresh session. When a round has nothing left to fix, merge `<integration_branch>` into this branch if it has moved; a merge with a conflict, or one that touches a file this branch changed, needs one more round. Then run `close-change <name>` on this branch and open the merge request."
+   - Tell the user: "Branch `<branch>` is ready. Review it with `review-change <name>` in a fresh session, and answer each round's findings here with `implement-change <name> --fix`. When a round is clean (`merge-ready`), merge `<integration_branch>` into this branch if it has moved; a merge with a conflict, or one that touches a file this branch changed, needs one more round. Then run `close-change <name>` on this branch and open the merge request."
    - **List any `pending-verification` items** with their commit SHAs and the human-verification criteria, flagged as requiring real-device verification before merge.
    - The skill **never** auto-merges the branch into the integration branch.
 
+## Fix mode — `--fix`
+
+The return leg of the review loop: `review-change` writes `round-NN.md`, `--fix` answers it, `review-change` runs again. Run it in the session that implemented the change.
+
+```
+/implement-change <name> --fix
+```
+
+Unlike a normal run it spawns **no subagents**. The fixes are small and the session that built the change already holds the context they need. In a fresh session, read the spec and every file a finding names before touching it.
+
+1. **Pre-flight.** As steps 3 and 4 of the workflow: on the change branch, clean tree, pulled. Then read the highest `<spec-dir>/reviews/round-NN.md` — the round is found, not passed as a path. Halt if there is none: rounds are local to the checkout that wrote them, so either that checkout's `reviews/` directory is copied here or there is nothing to fix. If the round's `**Head reviewed:**` SHA is not `HEAD`, say which commits landed since and ask before going on. A finding listed under "Carried over" is a one-line pointer: read its full text in the round it names, and refer to it by round and id (`round-01 B2`).
+2. **Sort the findings.**
+   - **Fix:** every finding under the round's Blocking and Nits sections, including still-open ones under "Carried over from prior rounds" — whatever its provenance. A `pre-existing` finding sits under Blocking only when a rework ticket targets it, and then it is this branch's job.
+   - **Skip:** every Re-grill finding, and every finding marked `downstream-of` one — its foundation is about to change, and a patch now is reviewed twice. Also the items that appear only under "Follow-up, outside this branch".
+   - **Hand back:** the Questions. They are for the user to answer; do not guess an answer and code to it.
+3. **Plan + confirm.** Show the three lists and wait for explicit OK. The user can drop a finding (`skip B2: <reason>`); it is reported as declined. Say then that this session cannot settle it: a declined finding and the answer to a Question count only once the user gives them in the reviewer session (`skip blocking #N`, `answer Q#: …`), because the next round re-checks every prior finding and this session never writes where the reviewer reads.
+4. **Fix each Blocking finding, in the round's order, one commit each.**
+   - Make the fix. Where the finding is wrong behaviour, write the failing test first, as `tdd` does.
+   - If the right fix turns out to change a decision — a glossary term, an ADR clause, behaviour a rework must preserve — stop work on that finding, discard the attempt (`git reset --hard HEAD && git clean -fd`) and report it as `needs re-grill`; the user reclassifies it in the reviewer session with `regrill #N`. Do not patch it.
+   - Verify as a normal item: the planning files are untouched, the tests the fix added or changed pass, a rework fix passes step 0's characterisation tests, then the **whole unit tier** passes.
+   - On red, **halt and report** verbatim, and stay in this step. The user answers `continue` (they fixed it by hand: re-verify, then commit under this finding's subject), `skip <id>: <reason>` (discard with `git reset --hard HEAD && git clean -fd`, report as declined, go on) or `abort` (discard the same way and stop). Fix mode keeps no state file, so `--continue` does not apply to it.
+   - On green: `git add -A`, then `git commit -m "Fix: <finding title>"`.
+5. **Fix all the Nits, one commit.** Same verification, then `git commit -m "Fix: review nits"`.
+6. **Run the deferred tiers once** — integration, then e2e — exactly as step 7 of the workflow, halting on red. A tier that could not run is named as unrun in the report.
+7. **Report.** One line per finding in the round: `B1 fixed <sha>`, `N3 declined — <reason>`, `B4 needs re-grill`, `R1 skipped — re-grill`, `Q1 open — for the user`. Then name the next step: `review-change <name>` in the reviewer session, or `grill-change` first if a Re-grill finding is open. The report goes to the conversation only. Never write it into the round file or anywhere the reviewer preloads: the next round re-verifies each finding at its recorded location, cold.
+
+Re-running `--fix` on the same round is safe once the tree is clean: a Blocking finding whose `Fix: <finding title>` commit already sits after the round's reviewed head is done, and so are the Nits once `Fix: review nits` sits there. Only what is left is fixed.
+
+The hard constraints below apply unchanged — above all, step 0's tests are never weakened to make a rework fix pass. Two more hold in this mode: **never patch a Re-grill finding**, and **never edit a round file**.
+
 ## Push-back / abandon flow
 
-Because there are no per-item branches or worktrees, abandoning an item's work is a single `git reset --hard HEAD` against the branch:
+Because there are no per-item branches or worktrees, abandoning an item's uncommitted work is `git reset --hard HEAD && git clean -fd` against the branch. The `clean` matters: `reset` alone leaves the item's new files — its tests, usually — to be swept into the next item's commit. Ignored files (review rounds, the state file) survive both.
 
-- **`push back: <reason>`** — `git reset --hard HEAD` to discard the rejected changes; respawn the subagent with the user's reason appended; loop back to auto-verify when it returns.
-- **`skip`** — `git reset --hard HEAD`; mark the item `skipped` in state; advance. The branch is left without that item's work. *Rework lane:* step 0 cannot be skipped.
+- **`push back: <reason>`** — discard the rejected changes as above; respawn the subagent with the user's reason appended; loop back to auto-verify when it returns.
+- **`skip`** — discard as above; mark the item `skipped` in state; advance. The branch is left without that item's work. *Rework lane:* step 0 cannot be skipped.
 - **`merge anyway`** — commit despite failing tests / unsatisfied criteria. Record the SHA *and* the override reason in state. Use sparingly; in the rework lane it means committing a behaviour change, which the reviewer will treat as Blocking.
 
 Because the working tree is the only place rejected work lives, an `abort` while changes are uncommitted will discard them. The skill confirms before `abort` if the working tree is non-empty.
@@ -128,7 +165,7 @@ Because the working tree is the only place rejected work lives, an `abort` while
 - **Never start on a dirty working tree, and never on the integration branch.** Pre-flight halts before the first item.
 - **Never create the branch.** The planning session cut it; if it is missing, so is the spec.
 - **Never start a rework without step 0.** Characterisation tests come first or the run does not begin.
-- **Never commit a subagent's edit to the spec.** The PRD, the issue stubs and `ticket.md` change only in the planning session.
+- **Never commit a subagent's edit to a planning file.** The PRD, the issue stubs, `ticket.md`, `CONTEXT.md` and the ADRs change only in the planning session.
 - **Never let a subagent modify, weaken or delete step 0's tests.** If the diff of a later step touches them, halt — that is the refactor changing behaviour and hiding it.
 - **Serial, never parallel.** Even when multiple AFK items sit at the same dependency level, spawn them one at a time — each subagent must start from the *post-commit* state of the previous item.
 
@@ -146,18 +183,18 @@ UX tokens during a halt.
 
 | User input                              | Skill action                                                                                              |
 |-----------------------------------------|-----------------------------------------------------------------------------------------------------------|
-| `continue` / `--continue`               | Resume from the persisted state. Re-evaluate the halt condition and advance if cleared.                   |
-| `push back: <reason>` / `redo: <reason>`| `git reset --hard HEAD`, respawn the halted item's subagent with the user's reason appended.              |
+| `continue` / `--continue`               | Resume from the persisted state. Re-evaluate the halt condition; if cleared, verify and commit the halted item, then advance. |
+| `push back: <reason>` / `redo: <reason>`| `git reset --hard HEAD && git clean -fd`, respawn the halted item's subagent with the user's reason appended. |
 | `merge anyway`                          | Auto-commit the working-tree changes despite failing tests / unsatisfied criteria. Record the override reason in state. |
-| `skip`                                  | `git reset --hard HEAD`, mark the halted item `skipped`, advance. Not available for rework step 0.        |
+| `skip`                                  | `git reset --hard HEAD && git clean -fd`, mark the halted item `skipped`, advance. Not available for rework step 0. |
 | `show <file>` / `cat <file>`            | `Read` the file and surface contents.                                                                     |
 | `run tests`                             | Re-run the halted item's own new tests against the working tree.                                           |
 | `run unit` / `run all tests`            | Run the whole unit tier (`tests.unit.all`) against the working tree.                                      |
 | `run integration`                       | Run the whole integration tier (`tests.integration.all`) on demand, ahead of the end-of-run gate.          |
 | `run e2e`                               | Run the whole e2e tier (`tests.e2e.all`) on demand.                                                       |
 | `hold` / `stop`                         | Persist state, do nothing further. User resumes with `--continue` later.                                  |
-| `done` (after manual HITL work)         | Verify the HITL changes are committed on the branch; mark the item `merged`; advance.                     |
-| `abort`                                 | Stop the run. The branch is left in place at its current state; the user decides what to do with it.     |
+| `done` (after manual HITL work)         | Verify the HITL changes are committed on the branch under the item's `NN: <title>` subject (later skills find implemented items by it); mark the item `merged`; advance. |
+| `abort`                                 | Stop the run. Uncommitted work is discarded after confirmation; the branch keeps its commits and the user decides what to do with it. |
 
 ## Advanced
 

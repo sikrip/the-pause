@@ -1,6 +1,6 @@
 ---
 name: close-change
-description: Close a reviewed change on its own branch, before the merge request, so that what merges already matches reality. Works for both lanes — a feature (spec ./docs/features/<name>/prd.md) or a rework ticket (spec ./docs/rework/<KEY>/ticket.md). Greps the docs for identifiers the change removed or renamed, confirms test fixtures are tracked and the whole suite passes, runs the debt check, then in the feature lane sets a Status header on the PRD and touched ADRs and deletes the issue stubs, and in the rework lane deletes the whole docs/rework/<KEY>/ directory (the tracker is the record). Also drafts the merge request description. Use on the change branch after review-change returns a clean round and before the merge request is opened. Requires a change name as input. Never commits, pushes or opens the merge request.
+description: Close a reviewed change on its own branch, before the merge request, so that what merges already matches reality. Works for both lanes — a feature (spec ./docs/features/<name>/prd.md) or a rework ticket (spec ./docs/rework/<KEY>/ticket.md). Greps the docs for identifiers the change removed or renamed, confirms test fixtures are tracked and the whole suite passes, runs the debt check, then in the feature lane sets a Status header on the PRD and touched ADRs and deletes the issue stubs, and in the rework lane deletes the whole docs/rework/<KEY>/ directory (the tracker is the record). Also drafts the merge request description. Use on the change branch after review-change returns a clean round and before the merge request is opened. Requires a change name as input. Commits only on the user's OK; never pushes or opens the merge request.
 ---
 
 # /close-change
@@ -36,7 +36,8 @@ The user must provide a **change name**: a kebab-case feature name or a ticket k
 Optional positional arg:
 
 - **Integration branch.** The merge request's target, used as the diff base. Default:
-  `integration_branch` in `.implement-change.config.json` when that file exists, else `develop`.
+  `integration_branch` in the `implement-change` config file (`.implement-change.config.json`, or
+  `.claude/implement-change.config.json`) when one exists, else `develop`.
   Resolve it once, after a best-effort `git fetch`, and use that one ref wherever a command below
   says `<integration_branch>`: the remote-tracking ref (`origin/<integration_branch>`, or the same
   on whichever remote the change branch tracks) when `git rev-parse --verify -q` finds it, otherwise
@@ -64,7 +65,8 @@ Optional positional arg:
    - no file is in both `git diff --name-only <integration_branch>...<head-reviewed>` (what the
      branch changed) and `git diff --name-only <mb-before>..<mb-after>` (what arrived), the merge
      bases being `git merge-base <integration_branch> <head-reviewed>` and
-     `git merge-base <integration_branch> HEAD`.
+     `git merge-base <integration_branch> HEAD`. `CONTEXT.md` and `docs/adr/` do not count: nearly
+     every planned change edits them, and a conflict in them is caught by the bullet above.
 
    A conflict or a shared file means the merge could have changed what the reviewer approved, so it
    gets the sync round.
@@ -118,8 +120,8 @@ in the merge request description, with who fills it.
   equivalent) and check each against `git ls-files`. Report every referenced fixture that is
   untracked or missing. This is the failure that silently disables e2e suites after a refactor.
 - **Suite:** run **every tier**, e2e included. This is the merge gate, and it is not a repeat of
-  `implement-change`'s end-of-run gate: the review fixes that landed since then are new code no gate
-  has seen. Discover the command in this order: `tests.<tier>.all` in
+  `implement-change`'s gates: the sync merge, and any commit made outside that skill, are code no
+  full gate has seen. Discover the command in this order: `tests.<tier>.all` in
   `.implement-change.config.json` (run each of the three tiers it declares), then the project
   `CLAUDE.md` commands section, `package.json` scripts, `pyproject.toml` / pytest, Gradle or Maven
   wrapper. Say which you picked, and report each tier with its own result and count.
@@ -137,13 +139,14 @@ merge request, delete this step from the skill.
 
 ### 4. Debt pass
 
-Invoke `/debt-check` if it is installed. Otherwise, do a bounded manual pass over the change's diff
-only: `ASSUMPTION NEEDED` markers with no owner or date, `TODO`/`FIXME` added by the change,
-parameters or config keys the diff added that nothing reads. Report, do not fix.
+Invoke `/debt-check` on the change's diff (`git diff <integration_branch>...HEAD`) if it is
+installed. Otherwise, do a bounded manual pass over that diff only: `ASSUMPTION NEEDED` markers with
+no owner or date, `TODO`/`FIXME` added by the change, parameters or config keys the diff added that
+nothing reads. Report, do not fix.
 
 ### 5. Status headers — feature lane only
 
-- **PRD:** insert or replace a line directly under the H1:
+- **PRD:** insert or replace a line at the very top of the file (under the H1 if it has one):
   `> Status: implemented — <YYYY-MM-DD>`. If the PRD already carries a `Status:` line
   saying `planned`, `in progress` or similar, replace it. Never append a second one.
 - **ADRs the change introduced or amended:** ensure a `Status:` line exists under the H1. Use
@@ -219,23 +222,28 @@ reviewers ask for takes one of two routes, and the test is whether it changes wh
   not by this skill.
 - **A change to what is built** — new or different behaviour, a different boundary, a reversed
   decision. That is a planning change and the spec has to say it before any code does, or the next
-  cold review will flag the requested change as a deviation. `git revert` the close commit, which
-  restores the spec (the rounds are still on disk). Write the feedback into the spec. Feature lane:
-  a new issue stub numbered after the last, and the PRD if it changes. Rework lane: a new step in
-  `ticket.md` only if behaviour still stays unchanged; feedback that asks a rework to change
-  behaviour has turned it into a feature, and goes to `grill-change`, which routes it to `to-prd`.
-  In either lane a reversed decision goes through `grill-change` first. Then `implement-change <name> <NN>` for the new item,
-  `review-change`, the sync, and this skill again.
+  cold review will flag the requested change as a deviation. One route, in this order:
+  1. `git revert` the close commit. It restores the spec and removes the status line; the rounds are
+     still on disk. Planning cannot be re-entered on a closed branch: the amend skills recognise a
+     change in progress by the files the close removed.
+  2. `grill-change <name>` on the branch, with the feedback pasted, then the freeze skills, which
+     amend the spec in place.
+  3. `implement-change <name> <NN>` for the new items, `review-change` (a full sweep, because the
+     spec changed), the sync, and this skill again.
+
+  **Rework lane:** feedback that asks a rework to change behaviour is not an amendment. A rework in
+  progress is never converted into a feature. It is finished and merged as the behaviour-preserving
+  change it is, or abandoned, and the behaviour change is planned afterwards as a separate feature.
 
 ## Hard constraints
 
 - **Never modify code.** This skill touches `<spec-dir>`, `docs/adr/` status lines, and nothing
   else. Stale doc claims are reported, not edited, unless the user says `fix`.
-- **Never commit, push, tag or open the merge request.** Draft the message and the description;
-  the user commits, pushes and opens it.
+- **Never commit without the user's OK on the drafted message,** as the standards' commit protocol
+  says. **Never push, tag or open the merge request:** those are the user's.
 - **Never delete without the confirmation in step 6.**
 - **Never write a status or prune over a red or unrun suite** without the user explicitly overriding
-  with `status <text>` (feature lane) or `close anyway` (either lane).
+  with `skip tests`, `status <text>` (feature lane) or `close anyway` (either lane).
 - **Never close on the integration branch.** The close reaches it through the merge request.
 
 ## Cheat sheet
@@ -244,13 +252,13 @@ reviewers ask for takes one of two routes, and the test is whether it changes wh
 |---|---|
 | `close` / `prune` | Confirm step 6: `git rm` the listed files or directory. |
 | `keep issues` | Feature lane: leave `issues/` in place; the close commit is the status headers only. |
-| `skip tests` | Skip step 3's suite run; record `suite: not run` in the PRD status line and the summary. |
+| `skip tests` | Skip step 3's suite run. An explicit override: record `suite: not run` in the PRD status line, the summary and the merge request description. |
 | `status <text>` | Feature lane: override the Status line text (e.g. to record a known-red suite). |
 | `close anyway` | Proceed despite a missing or non-`merge-ready` review round, or code that landed after the reviewed head (precondition 3), or a branch behind the integration branch (precondition 4), or to steps 5–6 despite a red or unrun suite; the summary and the merge request description record the override. |
 | `fix` | After step 2, edit the listed stale doc claims in place. |
 | `show <file>` | Read and surface a file's contents. |
 | `hold` / `stop` | Stop after the current step; nothing further is written. |
-| `abort` | Discard; restore any status lines already written with `git checkout -- <file>`. |
+| `abort` | Discard everything this skill did: `git reset --hard HEAD`. The tree was clean at precondition 5, so only the skill's own edits and staged removals go. |
 
 ## Output
 

@@ -1,6 +1,6 @@
 ---
 name: to-rework
-description: Freeze a grilled rework ticket into a spec file at ./docs/rework/<KEY>/ticket.md — the rework-lane twin of to-prd. Synthesises from the current conversation (a grill-change session that has already read the ticket and agreed the approach); does NOT fetch the ticket or interview the user. Writes the ticket summary, the agreed plan, an Acceptance section (normally "observable behaviour unchanged") and numbered Steps starting with step 0, the characterisation tests. implement-change, review-change and close-change consume this file. Requires a ticket key as input.
+description: Freeze a grilled rework ticket into a spec file at ./docs/rework/<KEY>/ticket.md — the rework-lane twin of to-prd. Synthesises from the current conversation (a grill-change session that has already read the ticket and agreed the approach); does NOT fetch the ticket or interview the user. Writes the ticket summary, the agreed plan, an Acceptance section (normally "observable behaviour unchanged") and numbered Steps starting with step 0, the characterisation tests. If the spec already exists, amends it without renumbering implemented steps. implement-change, review-change and close-change consume this file. Requires a ticket key as input.
 ---
 
 # /to-rework
@@ -27,6 +27,28 @@ The user must provide a **ticket key** (`PROJ-123`, `LAP-42`, `#118`-style keys 
 
 Relative to the project root. Create `./docs/rework/<KEY>/` if it does not exist. The file is committed as the first commit on the change branch `rework/<KEY>`, not to the integration branch, so the cold reviewer can read it without a tracker and it reaches the integration branch only through the merge request. It is deleted by `close-change` as the branch's last commit, which copies its Acceptance and Current behaviour sections into the merge request description; the tracker and the merge request are the archive.
 
+## If the spec already exists — amend it, do not re-freeze from scratch
+
+A `ticket.md` already at that path means the rework is in progress and its plan was reopened. Read
+it in full, and find which steps are already implemented: `implement-change` leaves one commit per
+step with the subject its commit template gives, zero-padded `NN: <title>` by default (`00:`, `01:`, ...). In a re-grill the ticket text is the spec's own `## Ticket` section, which `grill-change` has read; that satisfies precondition 1.
+
+- **A rework in progress is never converted into a feature.** If the amendment changes observable
+  behaviour, or widens the boundary step 0 pinned, it is not an amendment: say so and stop. The
+  rework is finished and merged as the behaviour-preserving change it is, or abandoned, and the rest
+  is planned afterwards — a behaviour change as a separate feature, a wider refactor as a new
+  ticket. Do not add either as a step, and do not add a second characterisation step:
+  `implement-change` treats step 0 alone as the tests that define "unchanged".
+- **Implemented steps are never edited or renumbered, and step 0 is never edited.** New steps are
+  numbered after the last existing one and run after it. A step not yet implemented may be edited or
+  removed.
+- Change **Plan**, **Acceptance** and **Current behaviour** only where the reopened decision touches
+  them, and add an `**Amended:** <YYYY-MM-DD> — <one line>` under `**Frozen:**`.
+- Show the user the intended edits as a diff and wait for an explicit OK before writing.
+
+Afterwards the amended spec is committed on the change branch, which already exists, and the new
+steps are implemented with `implement-change <KEY> <N> ...`.
+
 ## Process
 
 1. Explore the repo for the modules the rework touches, if the grilling has not already. Use the project's domain glossary vocabulary and respect ADRs in the area.
@@ -35,7 +57,7 @@ Relative to the project root. Create `./docs/rework/<KEY>/` if it does not exist
 
 3. **Order the moves.** Break the agreed approach into steps that each leave the whole suite green and each fit one commit. Extract-a-helper, move-a-block, delete-dead-code, split-a-function are the right grain. A step that cannot be done without changing behaviour is not a step: either the rework's scope is wrong (go back to the grilling) or it is a feature in disguise (route to `to-prd`).
 
-4. Write the spec using the template below. Confirm the path to the user once written, and remind them: cut `rework/<KEY>` from the up-to-date integration branch and commit the planning files there. The sequence that survives a planning file a teammate also changed: `git fetch` (best-effort), `git stash -u`, `git checkout --no-track -b rework/<KEY> origin/<integration_branch>` (the local `<integration_branch>` when there is no remote), `git stash pop`, then commit the spec and any `CONTEXT.md` / ADR updates. A conflict on `git stash pop` — `CONTEXT.md` is the usual one — is a real collision with a plan that merged meanwhile: resolve it before committing; the stash is kept until it is. A re-grill of a change in progress is run on its branch, which already exists: start the planning session there and commit the amended spec to it. Then run `implement-change <KEY>` on that branch in a fresh session.
+4. Write the spec using the template below. Confirm the path to the user once written, and remind them: cut `rework/<KEY>` from the up-to-date integration branch and commit the planning files there. The sequence that survives a planning file a teammate also changed: `git fetch` (best-effort), `git stash -u`, `git checkout --no-track -b rework/<KEY> origin/<integration_branch>` (the local `<integration_branch>` when there is no remote), `git stash pop`, then commit the spec and any `CONTEXT.md` / ADR updates. A conflict on `git stash pop` — `CONTEXT.md` is the usual one — is a real collision with a plan that merged meanwhile: resolve it before committing, then `git stash drop`. Then run `implement-change <KEY>` on that branch in a fresh session.
 
 ## Rules for the steps
 
@@ -106,7 +128,7 @@ Anything the implementer or reviewer needs that fits nowhere above.
 - **Never fetch the ticket.** The grilling did. If it is not in context, halt.
 - **Never write a spec whose acceptance changes behaviour.** Route to `to-prd`.
 - **Never omit step 0.** `implement-change` refuses to start without it, by design.
-- **Never commit.** Write the file, confirm the path, and hand the commit to the user.
+- **Never commit without the user's OK.** Write the file and confirm the path; the spec commit follows the standards' commit protocol.
 
 ## Output
 

@@ -1,6 +1,6 @@
 ---
 name: to-prd
-description: Turn the current conversation context into a PRD markdown file at ./docs/features/<feature-name>/prd.md. Use when user wants to create a PRD from the current context. Requires a feature name as input.
+description: Turn the current conversation context into a PRD markdown file at ./docs/features/<feature-name>/prd.md. If the PRD already exists, amends it in place instead of rewriting it. Use when user wants to create a PRD from the current context, or to land a reopened decision in an existing one. Requires a feature name as input.
 ---
 
 <!--
@@ -24,6 +24,25 @@ The PRD is written as a markdown file at:
 ```
 
 (relative to the project root, i.e. the current working directory). Create the `./docs/features/<feature-name>/` directory if it does not exist. This file is committed to git alongside the code that implements the feature — it is not a personal scratchpad. Do not publish to an issue tracker — output is markdown-only.
+
+## If the PRD already exists — amend it, do not rewrite it
+
+A `prd.md` already at that path means the change is in progress and a decision was reopened: a
+Re-grill finding from review, merge request feedback that changes what is built, or a change of
+mind. This session holds the amendment, not the original grilling, so regenerating the PRD from the
+conversation would silently drop everything that was not re-discussed.
+
+- Read the existing PRD in full first. If it carries `> Status: implemented`, stop: on its own change
+  branch the close commit must be reverted first, and anywhere else the feature has shipped and the
+  new work needs a new feature name.
+- Change only the sections the reopened decision touches. Leave every other line as it is.
+- User stories keep their numbers, because issue stubs cite them. Add new stories at the end of the
+  list. A story that no longer holds is struck through with a one-line reason, not deleted.
+- Add one line under **Further Notes**: the date, what changed, and what reopened it.
+- Show the user the intended edits as a diff and wait for an explicit OK before writing.
+
+The process below applies to a new PRD. For an amendment, step 2's module sketch is redone only if
+the amendment changes which modules are built.
 
 ## Process
 

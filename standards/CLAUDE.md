@@ -8,14 +8,12 @@ rules you need from [`rules/`](./rules/) into `<repo>/.claude/rules/`: `testing.
 `python-tooling.md` and `databricks-pipelines.md` for Python / Databricks teams. Rules load alongside
 this file at session start. Keep every instruction file under ~200 lines — never concatenate them.
 
-> The skills shipped in this repo (`grill-change`, `to-prd`, `to-md-issues`, `to-rework`,
-> `implement-change`, `review-change`, `close-change`, `tdd`, `diagnose`, `handoff`,
-> `mutation-testing`) assume the conventions below. See the repo `README.md` for the end-to-end workflow.
+> The skills shipped in this repo assume the conventions below. See its `README.md` for the
+> end-to-end workflow and the setup steps.
 
 ## Agent skills
 
-> This block is pre-configured so the bundled skills work out of the box — **no setup step, no
-> external install.** Edit the paths if your repo differs.
+> Pre-configured for the bundled skills. Edit the paths if your repo differs.
 
 ### Issue tracker
 
@@ -31,10 +29,9 @@ maintains both inline as decisions crystallise; `tdd` and `diagnose` read them f
 
 ### Planning artifacts
 
-Per-feature planning artifacts live under `docs/features/<feature-name>/`:
-`prd.md` (from `to-prd`), `issues/*.md` (from `to-md-issues`), and `reviews/round-NN.md`
-(from `review-change`; local and gitignored, never committed). See **Closing a change** for what
-happens to them before the feature merges.
+Per-feature planning artifacts live under `docs/features/<feature-name>/`: `prd.md` (from `to-prd`),
+`issues/*.md` (from `to-md-issues`) and `reviews/round-NN.md` (from `review-change`; local and
+gitignored, never committed). **Closing a change** says what happens to them before the merge.
 
 ## Project structure
 
@@ -56,7 +53,7 @@ Every project must have a proper `.gitignore` from day one.
 
 ## Working with AI on complex changes
 
-Anything beyond a one-file fix goes through the four-session flow — understand, freeze the spec,
+Anything that needs a decision goes through the phased flow — understand, freeze the spec,
 implement, review, close — with a **human decision at each boundary**. The lane depends on whether
 behaviour changes, not on size:
 
@@ -66,6 +63,10 @@ behaviour changes, not on size:
 - **Rework lane** — a refactor, cleanup or ticket-driven improvement that leaves behaviour unchanged:
   `grill-change <KEY>` (reads the ticket) → `to-rework <KEY>` → the same three skills. Spec:
   `docs/rework/<KEY>/ticket.md`; step 0 is always the characterisation tests that define "unchanged".
+- **An ordinary change takes no lane** — a bugfix restoring behaviour the docs, spec or tests already
+  intended (`diagnose`: reproduce, fix, regression test), a dependency bump, a docs, config or CI
+  change, a mechanical cleanup. Nothing to decide: its own branch, an ordinary session, the merge
+  request. If grilling would have a real question to ask, it is a feature or a rework.
 
 The shared skills infer the lane from which spec exists. Without the skills, the same phases by hand —
 research, plan, implement — stopping after each. The value is in the pause, not the speed.
@@ -77,7 +78,8 @@ as designed rather than accreted. A conforming slice that leaves a 300-line func
 one representative piece by hand first, then use it as the seed for the plan. If you can't explain the
 change to someone else, you haven't earned enough understanding to automate it.
 
-**Subagents** are for independent read-only research only — never more than six per task.
+**Subagents** are for independent read-only research only — never more than six per task. The one
+exception is `implement-change`, which spawns one writing subagent per item, one at a time.
 **Prefer enforcement over prose:** whenever a rule can be checked mechanically — a lint rule, a
 type-checker setting, a pre-commit hook — configure the tool instead of writing the rule here.
 Instruction files are context, not enforcement.
@@ -179,23 +181,24 @@ run `git commit` until the user says yes.
 
 ### No message trailers
 
-Commit messages must not include `Co-Authored-By`, `Generated with …`, or any other attribution
-footer. Plain message body, nothing after it.
+Commit messages carry no `Co-Authored-By`, `Generated with …` or other attribution footer.
 
 ### Each commit needs a fresh OK
 
 A previous "go ahead" does not extend to a follow-up commit later in the same session — unless the
 user has explicitly said "you can commit without asking from now on" in the current session.
 
+**The one exception: `implement-change` runs,** `--fix` included. The plan the user confirms at the
+start of a run authorises its commits, the test gate stands in for the per-commit OK, and the review
+round is the audit. Spec commits, the close commit and commits made by hand still ask.
+
 ## Closing a change
 
-Per-diff review cannot see cross-commit rot. A change is closed by `/close-change <name>` on its own
-branch, after a clean review round and before the merge request; until it has run clean, the change
-is not ready to merge. It greps the docs for identifiers the change removed or renamed, confirms
-fixtures are tracked and the full suite passes, runs `/debt-check`, then sets the PRD and ADR status
-and deletes the issue stubs (the merge request is the record). The fixture and suite steps
-stand in for CI until CI exists.
-
-The whole change lives on one branch — spec, code, close — and reaches the
-integration branch only through the team's merge request. Nothing is committed to the integration
-branch directly, and the skills' review does not replace the merge request's.
+Per-diff review cannot see cross-commit rot. A change that went through a lane is closed by
+`/close-change <name>` on its own branch, after a clean review round and before the merge request;
+until it has run clean, it is not ready to merge. It greps the docs for identifiers the change
+removed or renamed, confirms fixtures are tracked and the full suite passes, runs `/debt-check`,
+then sets the PRD and ADR status and deletes the issue stubs (the merge request is the record). The
+fixture and suite steps stand in for CI until CI exists. The whole change — spec, code, close — lives on one branch. Nothing is
+committed to the integration branch directly: every change, in a lane or not, reaches it through the
+team's merge request, which the skills' review does not replace.

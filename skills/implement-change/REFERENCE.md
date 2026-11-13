@@ -47,7 +47,7 @@ The `features` map is keyed by change name in both lanes — a rework ticket key
 | Field | Default | Notes |
 |---|---|---|
 | `default_feature` | unset | When unset, the skill uses single-change auto-detect or requires a positional change-name arg. |
-| `integration_branch` | `develop` | The branch the change branch was cut from in the planning session and the merge request will target. The skill diffs against it in informational output and never commits to or merges into it. |
+| `integration_branch` | `develop` | The branch the change branch was cut from in the planning session and the merge request will target. Resolved once per run as the remote-tracking ref when it exists, else the local branch. The skill diffs against it and never commits to or merges into it. |
 | `tests.<tier>.all` | see below | Runs the whole tier. `unit` runs before **every** commit; `integration` and `e2e` run **once**, at the end of the run, in that order. |
 | `tests.<tier>.select` | the tier's `all` with `{tests}` appended | Runs named test files in that tier. `{tests}` is replaced by the space-separated paths the subagent reported. Used for the item's own new tests. |
 | `test_command` *(legacy)* | `.venv/bin/pytest {tests} -v` | Pre-tier config. When `tests` is absent this is used for the item's new tests, unchanged. |
@@ -201,11 +201,13 @@ The `<bundle>` is assembled in this exact order:
    by the orchestrator — DO NOT create or switch branches. DO NOT run `git checkout`,
    `git switch`, `git branch`, or any other branch-mutating command.
 
-   DO NOT edit the spec — the PRD, the issue stubs, the rework ticket — not even to tick
+   DO NOT edit the planning files — the PRD, the issue stubs, the rework ticket,
+   CONTEXT.md, the ADRs — not even to tick
    an acceptance checkbox. Report which criteria you satisfied in your return message
-   instead. If the spec is wrong or cannot be met, say so there; do not change it.
+   instead. If one of them is wrong or cannot be met, say so there; do not change it.
 
-   Follow the global CLAUDE.md commit/audit protocol BUT DO NOT COMMIT. Leave all
+   Hold your own diff to the project CLAUDE.md code-shape rules and name anything you
+   left unresolved in your return message. DO NOT COMMIT. Leave all
    changes uncommitted in the working tree. The orchestrator runs the tests and
    commits on your behalf when they pass.
    ```
@@ -267,12 +269,12 @@ After the last item commits, and before the branch is declared ready:
 
 A tier with no configured command and no resolvable convention is reported as **unrun**, explicitly, in the end-state message. Never let an unrun tier read as a pass.
 
-Recovery from a failure here is a new commit on the branch (or `push back` on the item that `git log -S` identified), then re-run the gate. The branch keeps its per-item commits either way — the gate does not rewind them.
+Recovery from a failure here is a new `Fix: <what failed>` commit on the branch, made in-session behind the unit tier, then re-run the gate. `push back` and `skip` do not apply: the item `git log -S` identified is already committed. The branch keeps its per-item commits either way — the gate does not rewind them.
 
 ### Push-back
 
 User says `push back: <reason>` (or close paraphrase):
-1. `git reset --hard HEAD` to wipe the rejected uncommitted changes.
+1. `git reset --hard HEAD && git clean -fd` to wipe the rejected uncommitted changes, new files included.
 2. Respawn the item's subagent with the original prompt extended with:
    ```
    Previous attempt was rejected. Reason: <user's reason verbatim>.
@@ -283,7 +285,7 @@ User says `push back: <reason>` (or close paraphrase):
 
 ### Skip
 
-User says `skip`: `git reset --hard HEAD`; mark the item `skipped` in state; advance. Not available for rework step 0 — refuse and say why.
+User says `skip`: `git reset --hard HEAD && git clean -fd`; mark the item `skipped` in state; advance. Not available for rework step 0 — refuse and say why.
 
 ### Merge anyway
 
@@ -305,9 +307,12 @@ The skill halts (surfaces the reason, persists state, awaits user input) on any 
 7. **Working tree clean after subagent return.** Surface the inconsistency. Same options as 2.
 8. **Not on the change branch at start of run.** Pre-flight halt, checked first; the user checks the branch out, or cuts it and commits the spec to it. The skill never creates it.
 9. **Dirty working tree at start of run.** Pre-flight halt.
-10. **`git pull --ff-only` cannot fast-forward, or the branch already has item commits on a run that is not `--continue`.** Pre-flight halt; the user reconciles, or picks resume vs remaining items only.
-11. **Rework spec has no `## Steps` or no `### 0.`.** Pre-flight halt; point at `to-rework <KEY>`.
-12. **User says `hold` / `stop` / `abort`.** Persist state; do nothing further.
+10. **The integration branch resolves neither as a remote-tracking ref nor locally, or the state file is not gitignored.** Pre-flight halt.
+11. **A subagent or a fix edited a planning file** (the spec, `CONTEXT.md`, an ADR). Halt; the user restores it or takes the edit to planning.
+12. **Fix mode: a fix goes red.** `continue`, `skip <id>: <reason>` or `abort`; no state file, so no `--continue`.
+13. **`git pull --ff-only` cannot fast-forward, or the branch already has item commits on a run that is not `--continue` or `--fix` and names no items.** Pre-flight halt; the user reconciles, or picks resume vs remaining items only.
+14. **Rework spec has no `## Steps` or no `### 0.`.** Pre-flight halt; point at `to-rework <KEY>`.
+15. **User says `hold` / `stop` / `abort`.** Persist state; do nothing further.
 
 ## State file
 
@@ -350,7 +355,7 @@ When the skill stops at a HITL item, it must quote the HITL reason when surfacin
 2. **No mid-run steering.** Each subagent runs to completion. Bad output means `push back`, not patch in-flight.
 3. **Skill never auto-merges the branch into the integration branch.** That happens through the merge request, after review and `close-change`.
 4. **Skill never pushes branches.** Push policy is per-branch and the user's decision.
-5. **Working tree is the only place rejected work lives.** `git reset --hard HEAD` is destructive of uncommitted changes — the skill confirms before `abort` if the tree is non-empty.
+5. **Working tree is the only place rejected work lives.** `git reset --hard HEAD && git clean -fd` destroys uncommitted changes, new files included — the skill confirms before `abort` if the tree is non-empty.
 6. **No `isolation: "worktree"` on subagent spawn.** The subagent has full access to the main checkout. This is the cost of dropping worktrees in exchange for serial simplicity.
 7. **Serial spawning.** Spawn one subagent per message, never bundle.
 8. **One unit-tier run per commit; integration and e2e once at the end.** The per-item gate stays cheap so it can run every time. A repo whose slow tests are unlabelled has no cheap tier to run — tier it, rather than dropping the gate or narrowing it to something that no longer means anything.

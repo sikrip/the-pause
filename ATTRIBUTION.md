@@ -25,8 +25,8 @@ These started from Matt Pocock's skills and were adapted for this methodology's 
 
 | Our skill | Derived from | What changed |
 |-----------|--------------|--------------|
-| `to-prd` | Matt's `to-prd` (`skills/engineering/to-prd/`) | Output moved from `./temp/prds/<name>_prd.md` to `./docs/features/<name>/prd.md`; PRD is committed to git alongside the code. |
-| `to-md-issues` | Matt's `to-issues` (`skills/engineering/to-issues/`) | Reworked to emit local markdown files under `./docs/features/<name>/issues/` instead of creating issues in a remote tracker (GitHub/GitLab). |
+| `to-prd` | Matt's `to-prd` (`skills/engineering/to-prd/`) | Output moved from `./temp/prds/<name>_prd.md` to `./docs/features/<name>/prd.md`; PRD is committed to git alongside the code. Amends an existing PRD in place when a decision is reopened. |
+| `to-md-issues` | Matt's `to-issues` (`skills/engineering/to-issues/`) | Reworked to emit local markdown files under `./docs/features/<name>/issues/` instead of creating issues in a remote tracker (GitHub/GitLab). Amends existing issues without renumbering, and prints the commands that cut the change branch. |
 
 The design and prompt structure originate with Matt Pocock; the modifications are ours.
 
