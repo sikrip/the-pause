@@ -61,12 +61,7 @@ Tests are ranked into three tiers. The ranking decides what runs per commit and 
 
 A repo whose slow tests are unlabelled has no cheap unit tier. Say so once at the start of the run and name the cost, rather than silently paying it on every item.
 
-**When each tier runs:**
-
-- **Per item, before its commit:** the item's own new tests (whatever tier they are), then the **whole unit tier**. In the rework lane, every step after step 0 also runs step 0's characterisation tests, whatever their tier. Nothing else.
-- **Once at the end of the run,** after the last item commits: the **whole integration tier**, then the **whole e2e tier**. A failure in either halts before the branch is declared ready.
-
-The per-item gate is deliberately narrow: it catches what is cheap to catch and defers the expensive tiers to a single gate at the end. An item that breaks an integration test is caught before `review-change`, not before its own commit — a trade of per-item precision for run-wide speed.
+**When each tier runs** is set by the workflow, not here: the per-item gate is step 6, the deferred tiers are step 7. The per-item gate is deliberately narrow: it catches what is cheap to catch and defers the expensive tiers to a single gate at the end. An item that breaks an integration test is caught before `review-change`, not before its own commit — a trade of per-item precision for run-wide speed. The one slow thing that does run per item is a rework's step 0 tests, because they are what "unchanged" means.
 
 ## Workflow
 
@@ -90,24 +85,24 @@ The per-item gate is deliberately narrow: it catches what is cheap to catch and 
    - **Auto-verify, in this order:**
      1. **The planning files are untouched.** `git status --porcelain -- <spec-dir> CONTEXT.md docs/adr` must print nothing. If the subagent edited the PRD, an issue stub, `ticket.md`, the glossary or an ADR — ticking its own acceptance boxes counts — **halt**: the implementer does not rewrite the bar it is measured against. The user restores them (`git checkout -- <paths>` and `git clean -fd -- <paths>` for added files) and continues, or takes the edit to the planning session.
      2. Surface the agent's one-line summary, open questions, and any unsatisfied acceptance criteria. If any criterion is reported unsatisfied, **halt and ask the user** — do not auto-commit.
-     3. **Run the item's new tests** — every test file the agent reported, whatever tier it belongs to, with that tier's `select` command. Fast feedback, and proof the item actually added tests. A rework step after step 0 normally reports none; skip this run in that case and say so.
-     - *Rework lane, every step after step 0:* also run **step 0's characterisation tests** — the test files step 0's commit added — whatever tier they are in. Step 0's commit is found from the log, with or without a state file: `git log --format=%H --grep='^00: ' <integration_branch>..HEAD`, then the test files in `git show --name-only --format= <sha>`. They are what "behaviour unchanged" means, and they are usually integration-tier, so the unit tier alone would let a behaviour-breaking step commit.
-     4. **Run the whole unit tier** with `tests.unit.all`. Do **not** run the integration or e2e tiers here — they run once at the end (see step 7). Both lanes commit only on a green unit tier. If either run fails, **halt and report** verbatim. The user resumes with `--continue` (after fixing manually: the item is re-verified from the top of this list and committed, never carried uncommitted into the next item), `push back: <reason>` (respawn) or `skip` (abandon the item).
-     5. *Rework step 0 only:* the characterisation tests must pass against the **unrefactored** code, which is what the tree contains at this point. If they fail, they pin the wrong behaviour — halt; do not "fix" the code to make them pass.
-     6. On green, surface `git diff --stat` and a one-line file-list summary as informational output (no approval gate).
+     3. **Run the item's new tests** — every test file the agent reported, whatever tier it belongs to, with that tier's `select` command. Check the tier the agent reported rather than trust it: a file that builds a real session or container is integration whatever it was called. Fast feedback, and proof the item actually added tests. A rework step after step 0 normally reports none; skip this run in that case and say so.
+     4. *Rework lane, every step after step 0:* run **step 0's characterisation tests** — the test files step 0's commit added — whatever tier they are in. Step 0's commit is found from the log, with or without a state file: `git log --format=%H --grep='^00: ' <integration_branch>..HEAD`, then the test files in `git show --name-only --format= <sha>`. They are what "behaviour unchanged" means, and they are usually integration-tier, so the unit tier alone would let a behaviour-breaking step commit. Then check the step did not touch them: `git status --porcelain` must show none of step 0's test files. If it does, **halt** — that is the refactor changing behaviour and hiding it.
+     5. **Run the whole unit tier** with `tests.unit.all`. Do **not** run the integration or e2e tiers here — they run once at the end (see step 7). Both lanes commit only on a green unit tier. If either run fails, **halt and report** verbatim. The user resumes with `--continue` (after fixing manually: the item is re-verified from the top of this list and committed, never carried uncommitted into the next item), `push back: <reason>` (respawn) or `skip` (abandon the item).
+     6. *Rework step 0 only:* the characterisation tests must pass against the **unrefactored** code, which is what the tree contains at this point. If they fail, they pin the wrong behaviour — halt; do not "fix" the code to make them pass.
+     7. On green, surface `git diff --stat` and a one-line file-list summary as informational output (no approval gate).
    - **Auto-commit onto the branch:**
      ```
      git add -A
      git commit -m "<NN>: <item title>"
      ```
-     Use the configured `commit_template` if present. Record the SHA in the state file under the item's `commit` field.
+     Use the configured `commit_template` if present. If there is nothing to commit — the agent reported success but the tree is clean — **halt** and say so: it lost its work or did none. Record the SHA in the state file under the item's `commit` field and set its status to `merged`.
    - **Verification gate.** If the item carries `Verification: HITL`, implement, test and commit it as normal (the code is complete and it is `Type: AFK`), but mark it `pending-verification` in state. Auto mode cannot perform on-device or real-hardware verification, so green tests do **not** mean confirmed. Do not halt the run for it.
-   - **Advance.** Spawn the next item's subagent immediately.
+   - **Advance.** Spawn the next item's subagent immediately: no user prompt, just a one-line "Advancing to <NN>: <slug>".
 7. **Run the deferred tiers once.** After the last item commits, and before declaring the branch ready:
    - **Run the whole integration tier** with `tests.integration.all`.
    - On green, **run the whole e2e tier** with `tests.e2e.all`.
    - If either fails, **halt and report verbatim**, naming the tier and which item most plausibly introduced the failure (`git log -S` on the failing symbol narrows it). The branch keeps its commits, so `push back` and `skip` do not apply here: they only discard uncommitted work. The fix is a new commit, made in this session like a fix-mode finding — unit tier green, then `git commit -m "Fix: <what failed>"`, covered by the run's plan — and then this gate runs again.
-   - If a tier is not configured and cannot be resolved by convention, say so explicitly and name it as unrun. Never report a tier as passing when it was skipped.
+   - If a tier is not configured and cannot be resolved by convention, say so explicitly and name it as unrun. Never report a tier as passing when it was skipped. Record each tier's result in the state file.
 8. **End state.** Once the deferred tiers are green:
    - Surface the final `git log <branch> --not <integration_branch> --oneline` showing every commit.
    - Tell the user: "Branch `<branch>` is ready. Review it with `review-change <name>` in a fresh session, and answer each round's findings here with `implement-change <name> --fix`. When a round is clean (`merge-ready`), merge `<integration_branch>` into this branch if it has moved; a merge with a conflict, or one that touches a file this branch changed, needs one more round. Then run `close-change <name>` on this branch and open the merge request."
@@ -148,9 +143,9 @@ The hard constraints below apply unchanged — above all, step 0's tests are nev
 
 Because there are no per-item branches or worktrees, abandoning an item's uncommitted work is `git reset --hard HEAD && git clean -fd` against the branch. The `clean` matters: `reset` alone leaves the item's new files — its tests, usually — to be swept into the next item's commit. Ignored files (review rounds, the state file) survive both.
 
-- **`push back: <reason>`** — discard the rejected changes as above; respawn the subagent with the user's reason appended; loop back to auto-verify when it returns.
+- **`push back: <reason>`** (or `redo: <reason>`) — discard the rejected changes as above; respawn the subagent with the original prompt plus the push-back extension in REFERENCE.md; loop back to auto-verify when it returns.
 - **`skip`** — discard as above; mark the item `skipped` in state; advance. An item **Blocked by** a skipped one cannot be built: name it, and skip it too unless the user says otherwise. The branch is left without that item's work. *Rework lane:* step 0 cannot be skipped.
-- **`merge anyway`** — commit despite failing tests / unsatisfied criteria. Record the SHA *and* the override reason in state. Use sparingly; in the rework lane it means committing a behaviour change, which the reviewer will treat as Blocking.
+- **`merge anyway`** — commit despite failing tests / unsatisfied criteria, with ` [merge-anyway: <reason>]` appended to the subject. Record the SHA *and* the override reason in state. Use sparingly; in the rework lane it means committing a behaviour change, which the reviewer will treat as Blocking.
 
 Because the working tree is the only place rejected work lives, an `abort` while changes are uncommitted will discard them. The skill confirms before `abort` if the working tree is non-empty.
 
@@ -184,9 +179,9 @@ UX tokens during a halt.
 | User input                              | Skill action                                                                                              |
 |-----------------------------------------|-----------------------------------------------------------------------------------------------------------|
 | `continue` / `--continue`               | Resume from the persisted state. Re-evaluate the halt condition; if cleared, verify and commit the halted item, then advance. |
-| `push back: <reason>` / `redo: <reason>`| `git reset --hard HEAD && git clean -fd`, respawn the halted item's subagent with the user's reason appended. |
-| `merge anyway`                          | Auto-commit the working-tree changes despite failing tests / unsatisfied criteria. Record the override reason in state. |
-| `skip`                                  | `git reset --hard HEAD && git clean -fd`, mark the halted item `skipped`, advance. Not available for rework step 0. |
+| `push back: <reason>` / `redo: <reason>`| Discard and respawn the halted item — see "Push-back / abandon flow". |
+| `merge anyway`                          | Commit despite the failure, recording the override — same section. Not available in fix mode. |
+| `skip`                                  | Discard the halted item and advance — same section. Not available for rework step 0. |
 | `show <file>` / `cat <file>`            | `Read` the file and surface contents.                                                                     |
 | `run tests`                             | Re-run the halted item's own new tests against the working tree.                                           |
 | `run unit` / `run all tests`            | Run the whole unit tier (`tests.unit.all`) against the working tree.                                      |
@@ -196,6 +191,6 @@ UX tokens during a halt.
 | `done` (after manual HITL work)         | Verify the HITL changes are committed on the branch under the item's `NN: <title>` subject (later skills find implemented items by it); mark the item `merged`; advance. |
 | `abort`                                 | Stop the run. Uncommitted work is discarded after confirmation; the branch keeps its commits and the user decides what to do with it. |
 
-## Advanced
+## Reference
 
-See [REFERENCE.md](REFERENCE.md) for the subagent prompt template (including the rework directive), post-subagent commands, state-file shape, HITL detection rules, step parsing, and the configuration schema.
+See [REFERENCE.md](REFERENCE.md) for lookup material only: the configuration schema, rework step parsing, the subagent prompt template (with the rework directive and the push-back extension), the state-file shape and HITL detection. The procedure is this file; REFERENCE.md does not restate it.
