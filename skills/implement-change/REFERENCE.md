@@ -47,7 +47,7 @@ The `features` map is keyed by change name in both lanes — a rework ticket key
 | Field | Default | Notes |
 |---|---|---|
 | `default_feature` | unset | When unset, the skill uses single-change auto-detect or requires a positional change-name arg. |
-| `integration_branch` | `develop` | The branch the work branch is **cut from** at the start of the run, and the branch the skill diffs against in informational output. The skill never merges into it. |
+| `integration_branch` | `develop` | The branch the change branch was cut from in the planning session and the merge request will target. The skill diffs against it in informational output and never commits to or merges into it. |
 | `tests.<tier>.all` | see below | Runs the whole tier. `unit` runs before **every** commit; `integration` and `e2e` run **once**, at the end of the run, in that order. |
 | `tests.<tier>.select` | the tier's `all` with `{tests}` appended | Runs named test files in that tier. `{tests}` is replaced by the space-separated paths the subagent reported. Used for the item's own new tests. |
 | `test_command` *(legacy)* | `.venv/bin/pytest {tests} -v` | Pre-tier config. When `tests` is absent this is used for the item's new tests, unchanged. |
@@ -65,7 +65,7 @@ A project with no tier separation at all has no cheap unit tier. State the cost 
 ### Fallback behaviour (no config file)
 
 - Integration branch is `develop`.
-- Branch is `feature/<name>` or `rework/<name>` cut from `develop`.
+- Branch is `feature/<name>` or `rework/<name>`, already cut from `develop` and carrying the spec.
 - No tiers are declared, so the legacy pair applies: new tests via `.venv/bin/pytest {tests} -v`, then `.venv/bin/pytest tests/ --ignore=tests/e2e -v` before every commit, and no end-of-run tier gate.
 - Commit message is `<NN>: <item title>`.
 - Change name must come from a positional arg or single-change auto-detect.
@@ -201,6 +201,10 @@ The `<bundle>` is assembled in this exact order:
    by the orchestrator — DO NOT create or switch branches. DO NOT run `git checkout`,
    `git switch`, `git branch`, or any other branch-mutating command.
 
+   DO NOT edit the spec — the PRD, the issue stubs, the rework ticket — not even to tick
+   an acceptance checkbox. Report which criteria you satisfied in your return message
+   instead. If the spec is wrong or cannot be met, say so there; do not change it.
+
    Follow the global CLAUDE.md commit/audit protocol BUT DO NOT COMMIT. Leave all
    changes uncommitted in the working tree. The orchestrator runs the tests and
    commits on your behalf when they pass.
@@ -299,9 +303,9 @@ The skill halts (surfaces the reason, persists state, awaits user input) on any 
 5. **The integration or e2e tier fails at the end-of-run gate.** The branch keeps its commits; the user fixes forward with a new commit, or `push back`s the item `git log -S` identifies, then the gate re-runs.
 6. **Rework: step 0 tests fail against current code, or a later step modified step 0's tests.** `push back` or `abort`; `merge anyway` is available but recorded as a behaviour-change override.
 7. **Working tree clean after subagent return.** Surface the inconsistency. Same options as 2.
-8. **Merge conflict during pull/rebase pre-flight.** User resolves, resumes.
+8. **Not on the change branch at start of run.** Pre-flight halt, checked first; the user checks the branch out, or cuts it and commits the spec to it. The skill never creates it.
 9. **Dirty working tree at start of run.** Pre-flight halt.
-10. **Branch already exists at start of run.** Pre-flight halt; user picks resume vs fresh start.
+10. **`git pull --ff-only` cannot fast-forward, or the branch already has item commits on a run that is not `--continue`.** Pre-flight halt; the user reconciles, or picks resume vs remaining items only.
 11. **Rework spec has no `## Steps` or no `### 0.`.** Pre-flight halt; point at `to-rework <KEY>`.
 12. **User says `hold` / `stop` / `abort`.** Persist state; do nothing further.
 
@@ -344,7 +348,7 @@ When the skill stops at a HITL item, it must quote the HITL reason when surfacin
 
 1. **Subagent /tdd quality varies.** Tests passing is necessary but not sufficient — tests can pass while still being implementation-mirroring. Auto-commit on green is a deliberate trade-off: faster throughput, at the cost of reviewing the branch before merging.
 2. **No mid-run steering.** Each subagent runs to completion. Bad output means `push back`, not patch in-flight.
-3. **Skill never auto-merges the branch into the integration branch.** That's the user's call after review.
+3. **Skill never auto-merges the branch into the integration branch.** That happens through the merge request, after review and `close-change`.
 4. **Skill never pushes branches.** Push policy is per-branch and the user's decision.
 5. **Working tree is the only place rejected work lives.** `git reset --hard HEAD` is destructive of uncommitted changes — the skill confirms before `abort` if the tree is non-empty.
 6. **No `isolation: "worktree"` on subagent spawn.** The subagent has full access to the main checkout. This is the cost of dropping worktrees in exchange for serial simplicity.

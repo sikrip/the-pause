@@ -29,15 +29,18 @@ flowchart TD
         A --> B --> C
     end
 
-    D["<b>Session 2 · Implementer</b><br/>/implement-change &lt;feature&gt;<br/><small>cut feature/&lt;feature&gt; off develop;<br/>walk issues serially, drive tdd,<br/>commit on green; stop at HITL gates</small>"]
+    D["<b>Session 2 · Implementer</b><br/>/implement-change &lt;feature&gt;<br/><small>on feature/&lt;feature&gt;:<br/>walk issues serially, drive tdd,<br/>commit on green; stop at HITL gates</small>"]
 
     E["<b>Session 3 · Reviewer</b> &nbsp;<small>fresh session, no planning context</small><br/>/review-change &lt;feature&gt;<br/><small>cold-diff feature/&lt;feature&gt; vs develop;<br/>read prd + issues as the spec;<br/>write blockers / nits / questions<br/>to reviews/round-NN.md</small>"]
 
-    C -->|"commit CONTEXT.md, docs/adr/*,<br/>prd.md, issues/* to develop"| D
+    C -->|"cut feature/&lt;feature&gt; off develop;<br/>commit CONTEXT.md, docs/adr/*,<br/>prd.md, issues/* to it"| D
     D -->|"all work on feature/&lt;feature&gt;"| E
     E -->|"round-NN.md: blockers / nits / questions<br/>(another round needed)"| D
-    E ==>|"clean round — no blockers,<br/>nits or questions"| M([Merge feature/&lt;feature&gt; into develop])
-    M --> F["/close-change &lt;feature&gt;<br/><small>on develop: PRD/ADR status, prune issues + reviews,<br/>docs grep, fixtures + full suite, debt check</small>"]
+    E ==>|"clean round — no blockers,<br/>nits or questions — then<br/>merge develop in"| F["/close-change &lt;feature&gt;<br/><small>on feature/&lt;feature&gt;: docs grep, fixtures + full suite,<br/>debt check, PRD/ADR status, prune issues;<br/>drafts the MR description</small>"]
+    F ==> R["Merge request &nbsp;<small>feature/&lt;feature&gt; → develop</small><br/><small>team review and approval, as usual</small>"]
+    R -->|"MR feedback:<br/>a fix"| D
+    R -->|"MR feedback: changes<br/>what is built"| A
+    R ==>|"approved"| M([Merge feature/&lt;feature&gt; into develop])
 ```
 
 Why separate sessions: the reviewer must not remember the planning rationale. It judges the diff
@@ -45,7 +48,7 @@ against the written spec, the way a new reviewer would. That is what keeps the r
 
 In practice the tabs are named **Architect**, **Developer** and **Reviewer**. A typical moment: the
 Developer tab has read the PRD and six issue stubs, printed the dependency order (each issue's
-`Blocked by` line links the slices), and stopped for a pre-flight check before cutting the branch.
+`Blocked by` line links the slices), and stopped for a pre-flight check before the first issue.
 
 ---
 
@@ -82,7 +85,10 @@ Each issue gets a **Type** (`AFK`: the agent can build it, `HITL`: a human decid
 and a **Verification** (`AFK`, or `HITL`: a human confirms it works). Output:
 `docs/features/<feature-name>/issues/<NN>_<slug>.md`, numbered in dependency order.
 
-**End of session 1:** commit `CONTEXT.md`, `docs/adr/*`, `prd.md` and `issues/*` to `develop`.
+**End of session 1:** cut `feature/<feature-name>` off an up-to-date `develop` (`to-md-issues`
+prints the commands) and commit `CONTEXT.md`, `docs/adr/*`, `prd.md` and `issues/*` to it. Nothing
+is pushed to `develop`: the spec reaches it through the same merge request as the code. If your team
+wants to see the plan before any code exists, push the branch now and open a draft MR.
 
 ---
 
@@ -90,7 +96,7 @@ and a **Verification** (`AFK`, or `HITL`: a human confirms it works). Output:
 
 ### `implement-change <feature-name>`
 
-Cuts `feature/<feature-name>` off `develop` and walks the issues one at a time:
+Run it on `feature/<feature-name>`, the branch session 1 cut. It walks the issues one at a time:
 
 - one subagent per issue, driving the `tdd` skill (red, green, refactor)
 - when it returns: the issue's new tests, then the unit tier; both must be green
@@ -113,7 +119,9 @@ the branch is `rework/PROJ-123`.
 
 Run it in a fresh session with no planning context. It diffs the feature branch against `develop`,
 reads `prd.md` and the issues as the spec, and writes findings to
-`docs/features/<feature-name>/reviews/round-NN.md`:
+`docs/features/<feature-name>/reviews/round-NN.md`, a local file that is gitignored and never
+committed. Rounds stay in the checkout that wrote them: to continue a review on another machine,
+copy the `reviews/` directory over. Findings:
 
 - **re-grill** - a decision that goes back to planning
 - **blockers**, **nits**, **questions** - for the implementer or for you
@@ -122,14 +130,58 @@ Each finding is tagged `introduced`, `amplified` or `pre-existing`, so you can t
 caused from what it only surfaced.
 
 **The loop:** take `round-NN.md` back to session 2, fix, and review again (`round-02.md`, ...).
-Repeat until a round is clean. Then merge and run `close-change <feature-name>` on `develop`. It sets
-the PRD and ADR status, deletes the issue stubs and review rounds, greps the docs for anything the
-change removed, and runs every test tier. The change is not done until it runs clean.
+Repeat until a round is clean.
+
+**Sync before closing.** `develop` moves while you work. When a round has nothing left to fix, merge
+the current `develop` into the change branch (`git fetch`, then `git merge origin/develop`; your
+local `develop` may be stale). Merge, never rebase: later rounds narrow from recorded SHAs. If the
+merge is clean and touches no file the branch changed, you are done and `close-change` accepts it.
+If it has a conflict or shares a file with the branch, run `review-change` once more: that round
+skips what arrived from `develop` and reads only the conflict resolutions and the shared files.
+`close-change` refuses a branch that is behind `develop`.
 
 ### `mutation-testing` (optional)
 
 After a clean review, finds gaps in test quality: it mutates the code and reports the mutants your
-tests don't catch. It asks for the tool, paths and exclusions before running.
+tests don't catch. It asks for the tool, paths and exclusions before running. Tests it leads you to
+add are new commits, so run one more review round before closing.
+
+---
+
+## Closing, then the merge request
+
+### `close-change <feature-name>`
+
+Run it on the change branch after a clean round, before the merge request. It greps the docs for
+anything the change removed, confirms the fixtures are tracked, runs every test tier and the debt
+check, then sets the PRD and ADR status and deletes the issue stubs. The result is
+one last commit, `Close <feature-name>`, and a draft MR description: what the change does, what
+review raised and how it was resolved, the suite results, the follow-ups. In the rework lane it also
+carries what "behaviour unchanged" means, copied from the spec, because the spec file itself is
+deleted by the close.
+
+Closing before the merge means these checks can still hold it, and nobody pushes housekeeping to
+`develop` afterwards.
+
+### The merge request, as usual
+
+A clean round and a clean close mean the branch is ready for human review, not that it is approved.
+The skills come before your team's merge request and do not replace it: push the branch, open the
+MR, and let it be reviewed and approved the way any other MR is. The review rounds are local files
+and never committed, so the MR description carries their summary.
+
+MR feedback takes one of two routes, and the test is whether it changes what is being built:
+
+- **A fix** (a bug, a name, a missed case): fix it on the branch like on any MR. Re-run the tests
+  with CI or the project's test command; the skills are not re-run.
+- **A change to what is built:** that is a planning change. Revert the close commit, write the
+  feedback into the spec (a new issue, or a new step in the rework ticket), then implement, review,
+  sync and close again. A rework asked to change behaviour has become a feature: it goes back to
+  `grill-change`. Without the spec edit, the cold reviewer would flag the requested change as
+  a deviation.
+
+After the merge, delete the local `reviews/` directory, and in the rework lane close the ticket in
+the tracker. Nothing else is left to do.
 
 ---
 
@@ -145,36 +197,42 @@ only the spec:
 | Freeze | `to-prd` + `to-md-issues` -> `docs/features/<name>/` | `to-rework <KEY>` -> `docs/rework/<KEY>/ticket.md`: ticket, plan, **Acceptance**, numbered **Steps** |
 | Implement | `implement-change <name>` on `feature/<name>`, one commit per issue | `implement-change <KEY>` on `rework/<KEY>`, one commit per step; **step 0 is the characterisation tests** |
 | Review | `review-change <name>` against the PRD and issues | `review-change <KEY>` against `ticket.md`; the bar is "behaviour unchanged" |
-| Close | `close-change <name>`: status headers, prune `issues/` + `reviews/` | `close-change <KEY>`: delete `docs/rework/<KEY>/`; the tracker is the record |
+| Close | `close-change <name>` on the branch, before the MR: status headers, prune `issues/` | `close-change <KEY>` on the branch, before the MR: delete `docs/rework/<KEY>/`; the tracker is the record |
 
 You never tell the skills which lane you are in. They work it out from which spec exists
 (`grill-change` from its argument).
 
 ### The two lanes side by side, and where the branch is cut
 
-Nothing before `implement-change` touches a branch. Session 1 commits the spec to `develop`, so the
-change branch already contains it when it is cut.
+Everything happens on the change branch. Session 1 cuts it and commits the spec there, so `develop`
+is only ever written to by the merge request.
 
 ```text
 Feature lane                            Rework lane
 ────────────────────────────────────    ────────────────────────────────────
-grill-change            (on develop)    grill-change <KEY>        (on develop)
-to-prd + to-md-issues   (on develop)    to-rework <KEY>           (on develop)
-  └─ commit prd.md + issues/*             └─ commit ticket.md
-        to develop                              to develop
-                    ↓                                       ↓
-implement-change <name>                 implement-change <KEY>
+grill-change                            grill-change <KEY>
+to-prd + to-md-issues                   to-rework <KEY>
   └─ git checkout -b feature/<name>       └─ git checkout -b rework/<KEY>
         from develop        ◄── BRANCH CREATED HERE ──►      from develop
+  └─ commit prd.md + issues/*             └─ commit ticket.md
+        to the branch                           to the branch
+                    ↓                                       ↓
+implement-change <name>                 implement-change <KEY>
   └─ one commit per issue                 └─ one commit per step, step 0 first
                     ↓                                       ↓
 review-change <name>                    review-change <KEY>
   └─ diffs feature/<name> vs develop      └─ diffs rework/<KEY> vs develop
   └─ writes reviews/round-NN.md           └─ writes reviews/round-NN.md
-        on the change branch                    on the change branch
+        (local, never committed)                (local, never committed)
+  └─ then merge develop in; one more      └─ then merge develop in; one more
+        round only on conflict/overlap          round only on conflict/overlap
                     ↓                                       ↓
-merge to develop                        merge to develop
-close-change <name>     (on develop)    close-change <KEY>        (on develop)
+close-change <name>                     close-change <KEY>
+  └─ checks, status, prune;               └─ checks, delete docs/rework/<KEY>/;
+        last commit on the branch               last commit on the branch
+                    ↓                                       ↓
+merge request → develop                 merge request → develop
+  └─ team review, approval, merge         └─ team review, approval, merge
 ```
 
 ---
@@ -184,7 +242,7 @@ close-change <name>     (on develop)    close-change <KEY>        (on develop)
 | Tool | What it does |
 |------|------|
 | `to-rework` | Freezes a grilled rework ticket into `docs/rework/<KEY>/ticket.md`. The rework twin of `to-prd`. |
-| `close-change` | Closes a merged change so the repo matches reality: status headers, prune specs, docs grep, every test tier, debt check. |
+| `close-change` | Closes a reviewed change on its branch, before the merge request: docs grep, every test tier, debt check, status headers, prune specs, draft MR description. |
 | `handoff` | Compacts the current session into a hand-off doc. Ad hoc, not part of the lanes: use it to pass work to another session or repo, or when a session's context gets large (say 400k+ tokens): `/handoff`, `/clear`, and carry on from the doc. |
 | `diagnose` | A debugging loop for hard bugs and perf regressions: reproduce, minimise, hypothesise, instrument, fix, regression-test. |
 | `/check` | Runs the quality gate: lint, format, type-check, security scan, tests. Python/Databricks only. |
@@ -227,7 +285,11 @@ the-pause/
    `standards/rules/testing.md` to `<repo>/.claude/rules/`. On Python + Databricks, add
    `python-tooling.md` and `databricks-pipelines.md` there too. Keep them as separate files, each
    under ~200 lines; that is what keeps the agent following them. The `## Agent skills` block in
-   `CLAUDE.md` is already set up for local markdown issues.
+   `CLAUDE.md` is already set up for local markdown issues. Add three lines to the repo's
+   `.gitignore`: `docs/features/*/reviews/` and `docs/rework/*/reviews/` (review rounds are local
+   working notes, never committed) and `.claude/implement-change-state.json` (the implementer's
+   per-developer state). If the repo already has committed rounds from an earlier version of this
+   workflow, untrack them once: `git rm -r --cached docs/features/*/reviews docs/rework/*/reviews`.
 
 2. **Skills.** Symlink each skill into `~/.claude/skills/` (user-wide) or `<repo>/.claude/skills/`:
    `ln -s <the-pause>/skills/<name> ~/.claude/skills/<name>`. One link per skill, so your own skills

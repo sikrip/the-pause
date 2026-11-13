@@ -1,11 +1,11 @@
 ---
 name: implement-change
-description: Serial, unattended implementation of a change as a sequence of commits on a dedicated branch. Works for both lanes — a feature (work items are the issue stubs under ./docs/features/<name>/issues/) or a rework ticket (work items are the numbered steps in ./docs/rework/<KEY>/ticket.md) — resolving the lane from which spec exists. Cuts the branch from the integration branch, walks the items one at a time, spawning one subagent per item, running the item's new tests and then the unit tier when it returns, and committing on green before advancing. The integration and e2e tiers run once at the end of the run, not per item. HITL items still stop for human action. No worktrees, no parallelism. Use when the spec is frozen and the user wants batch implementation that lands as one commit per item.
+description: Serial, unattended implementation of a change as a sequence of commits on a dedicated branch. Works for both lanes — a feature (work items are the issue stubs under ./docs/features/<name>/issues/) or a rework ticket (work items are the numbered steps in ./docs/rework/<KEY>/ticket.md) — resolving the lane from which spec exists. Works on the change branch the planning session cut and committed the spec to, walks the items one at a time, spawning one subagent per item, running the item's new tests and then the unit tier when it returns, and committing on green before advancing. The integration and e2e tiers run once at the end of the run, not per item. HITL items still stop for human action. No worktrees, no parallelism. Use when the spec is frozen and the user wants batch implementation that lands as one commit per item.
 ---
 
 # /implement-change
 
-Drives **serial, fully-automated** execution of a change's work items as a sequence of commits on a dedicated branch. The implementer is the second leg of the workflow: **s1 plans**, **s2 implements**, **s3 reviews** (`review-change`), then `close-change` closes.
+Drives **serial, fully-automated** execution of a change's work items as a sequence of commits on a dedicated branch. The implementer is the second leg of the workflow: **s1 plans**, **s2 implements**, **s3 reviews** (`review-change`), then `close-change` closes the branch and the merge request follows.
 
 Two lanes share this skill. A **feature** is planned with `grill-change` → `to-prd` → `to-md-issues` and its work items are issue stubs. A **rework** (a refactor, cleanup or ticket-driven improvement that leaves behaviour unchanged) is planned with `grill-change <KEY>` → `to-rework <KEY>` and its work items are the numbered steps in one spec file. The loop, the halt conditions, the state file and the subagent discipline are identical; the lanes differ in where the items come from, how they are ordered, and what "green" means.
 
@@ -28,14 +28,14 @@ The change name is the first non-numeric positional arg, else `default_feature` 
 
 1. `./docs/features/<name>/prd.md` exists → **feature lane**. `<spec-dir>` is `./docs/features/<name>/`. Work items = every `*.md` under `<spec-dir>/issues/`. Context doc = `prd.md`. Branch default `feature/<name>`.
 2. `./docs/rework/<name>/ticket.md` exists → **rework lane**. `<spec-dir>` is `./docs/rework/<name>/`. Work items = the `### N. <title>` subsections under `## Steps` in `ticket.md`; the step body is everything up to the next `###`. Context doc = `ticket.md` itself (its `## Acceptance` section is the bar). Branch default `rework/<name>`.
-3. Neither exists → halt and print both paths checked. Legacy fallbacks (`temp/issues/<name>/`, `temp/prds/<name>_prd.md`) are honoured for the feature lane only.
+3. Neither exists → halt and print both paths checked and the current branch. The spec lives on the change branch, so running from the integration branch is the usual cause. Legacy fallbacks (`temp/issues/<name>/`, `temp/prds/<name>_prd.md`) are honoured for the feature lane only.
 
 Numeric args filter the resolved items to that subset in either lane.
 
 ## Conventions
 
 - **Commit messages:** `<NN>: <item title>` (e.g. `01: Fix X-pinch snap-back on the Lap Detail speed graph`, `00: Characterisation tests for the orders merge`). Override via `features.<name>.commit_template` in config.
-- **Branch:** `feature/<name>` or `rework/<name>` cut from `integration_branch` at the start of the run. Override via `features.<name>.feature_branch_template` / `rework_branch_template`.
+- **Branch:** `feature/<name>` or `rework/<name>`, cut from `integration_branch` in the planning session, which committed the spec to it. This skill works on it and never creates it. Override the name via `features.<name>.feature_branch_template` / `rework_branch_template`.
 - **HITL detection** applies to a step body exactly as to a stub (see REFERENCE.md).
 
 ## Test tiers
@@ -69,28 +69,25 @@ The per-item gate is deliberately narrow: it catches what is cheap to catch and 
 2. **Order the items.**
    - *Feature lane:* extract `## Blocked by` from every stub (`#03`, `03`, or a path), build a DAG, flatten it: level 0 first, then level 1, etc.; within a level, by `NN`. Parallelism is dropped entirely.
    - *Rework lane:* steps are already ordered by the planner; execute in numeric order, no DAG. **Step 0 must exist and must be the characterisation tests** that pin current behaviour. If `ticket.md` has no `### 0.` step, halt: a rework whose acceptance is "behaviour unchanged" cannot start without the tests that define "unchanged". Say so and point at `to-rework`.
-3. **Pre-flight checks.**
+3. **Pre-flight checks,** in this order.
+   - The current branch must be `<branch>` (`feature/<name>` or `rework/<name>`). If it is not, **stop**: name the current branch and tell the user to check out `<branch>`, or, if it does not exist, to cut it from `<integration_branch>` and commit the spec to it as the planning session should have (an uncommitted spec comes along with `git checkout -b`). Never create the branch and never start on the integration branch. This check comes first so that a dirty tree on the wrong branch is never answered with "commit".
    - Verify the working tree is clean (`git status --porcelain` returns nothing). If not, **stop** and tell the user to stash or commit — the skill will not start on a dirty tree.
    - Verify the integration branch exists locally.
-4. **Create the branch.**
-   ```
-   git fetch                                          # best-effort; ignore if no remote
-   git checkout <integration_branch>
-   git pull --ff-only                                 # best-effort; ignore on offline / no upstream
-   git checkout -b <branch>                           # feature/<name> or rework/<name>
-   ```
-   If `<branch>` already exists locally, **stop** and ask the user whether to resume on it (`--continue` semantics, requires a non-empty state file) or rename / delete it and start fresh. Never silently reuse a pre-existing branch.
+4. **Sync, and look for an earlier run.**
+   - `git pull --ff-only` — best-effort; ignore when offline or when the branch has no upstream. If it cannot fast-forward, **stop** and let the user reconcile.
+   - If the branch already has item commits (`git log <integration_branch>..<branch>` shows subjects matching the commit template), this is not a `--continue` run and no item numbers were given, **stop** and ask the user whether to resume (`--continue` semantics, requires a non-empty state file) or to run only the remaining items. Never silently re-run an item that already has a commit.
 5. **Plan + confirm.** Show the user: lane, spec path, branch name, the serial order of items, and which are HITL. Wait for explicit OK before launching the first item.
 6. **For each item, in order:**
    - **HITL?** Stop. Surface the item, quote the "why HITL" reason from it, tell the user to drive it manually on the branch (the main checkout is already on it), then resume with `--continue` after they say `done`.
    - **AFK?** Spawn **one** Agent subagent (prompt template in REFERENCE.md). No `isolation: "worktree"` — the subagent works in-place on the branch. It is told to leave changes **uncommitted** so the skill controls when and how to commit.
    - Wait for the subagent to return.
    - **Auto-verify, in this order:**
-     1. Surface the agent's one-line summary, open questions, and any unsatisfied acceptance criteria. If any criterion is reported unsatisfied, **halt and ask the user** — do not auto-commit.
-     2. **Run the item's new tests** — every test file the agent reported, whatever tier it belongs to, with that tier's `select` command. Fast feedback, and proof the item actually added tests. A rework step after step 0 normally reports none; skip this run in that case and say so.
-     3. **Run the whole unit tier** with `tests.unit.all`. Do **not** run the integration or e2e tiers here — they run once at the end (see step 8). Both lanes commit only on a green unit tier. If either run fails, **halt and report** verbatim. The user resumes with `--continue` (after fixing manually), `push back: <reason>` (respawn) or `skip` (abandon the item).
-     4. *Rework step 0 only:* the characterisation tests must pass against the **unrefactored** code, which is what the tree contains at this point. If they fail, they pin the wrong behaviour — halt; do not "fix" the code to make them pass.
-     5. On green, surface `git diff --stat` and a one-line file-list summary as informational output (no approval gate).
+     1. **The spec is untouched.** `git status --porcelain -- <spec-dir>` must print nothing. If the subagent edited the PRD, an issue stub or `ticket.md` — ticking its own acceptance boxes counts — **halt**: the implementer does not rewrite the bar it is measured against. The user restores the files (`git checkout -- <spec-dir>`) and continues, or takes the edit to the planning session.
+     2. Surface the agent's one-line summary, open questions, and any unsatisfied acceptance criteria. If any criterion is reported unsatisfied, **halt and ask the user** — do not auto-commit.
+     3. **Run the item's new tests** — every test file the agent reported, whatever tier it belongs to, with that tier's `select` command. Fast feedback, and proof the item actually added tests. A rework step after step 0 normally reports none; skip this run in that case and say so.
+     4. **Run the whole unit tier** with `tests.unit.all`. Do **not** run the integration or e2e tiers here — they run once at the end (see step 7). Both lanes commit only on a green unit tier. If either run fails, **halt and report** verbatim. The user resumes with `--continue` (after fixing manually), `push back: <reason>` (respawn) or `skip` (abandon the item).
+     5. *Rework step 0 only:* the characterisation tests must pass against the **unrefactored** code, which is what the tree contains at this point. If they fail, they pin the wrong behaviour — halt; do not "fix" the code to make them pass.
+     6. On green, surface `git diff --stat` and a one-line file-list summary as informational output (no approval gate).
    - **Auto-commit onto the branch:**
      ```
      git add -A
@@ -106,7 +103,7 @@ The per-item gate is deliberately narrow: it catches what is cheap to catch and 
    - If a tier is not configured and cannot be resolved by convention, say so explicitly and name it as unrun. Never report a tier as passing when it was skipped.
 8. **End state.** Once the deferred tiers are green:
    - Surface the final `git log <branch> --not <integration_branch> --oneline` showing every commit.
-   - Tell the user: "Branch `<branch>` is ready. Review it with `review-change <name>` in a fresh session, merge when a round comes back clean, then run `close-change <name>` on `<integration_branch>`."
+   - Tell the user: "Branch `<branch>` is ready. Review it with `review-change <name>` in a fresh session. When a round has nothing left to fix, merge `<integration_branch>` into this branch if it has moved; a merge with a conflict, or one that touches a file this branch changed, needs one more round. Then run `close-change <name>` on this branch and open the merge request."
    - **List any `pending-verification` items** with their commit SHAs and the human-verification criteria, flagged as requiring real-device verification before merge.
    - The skill **never** auto-merges the branch into the integration branch.
 
@@ -128,8 +125,10 @@ Because the working tree is the only place rejected work lives, an `abort` while
 - **Never auto-commit when the item's new tests or the unit tier fail, or acceptance criteria are unsatisfied,** without explicit `merge anyway`. Halt instead.
 - **Never declare the branch ready before the deferred tiers have run.** Integration and e2e run once at the end; a tier that was skipped is reported as unrun, never as passing.
 - **Never run the full integration or e2e tier per item.** That is the cost this ranking exists to avoid.
-- **Never start on a dirty working tree.** Pre-flight check halts before any branch creation.
+- **Never start on a dirty working tree, and never on the integration branch.** Pre-flight halts before the first item.
+- **Never create the branch.** The planning session cut it; if it is missing, so is the spec.
 - **Never start a rework without step 0.** Characterisation tests come first or the run does not begin.
+- **Never commit a subagent's edit to the spec.** The PRD, the issue stubs and `ticket.md` change only in the planning session.
 - **Never let a subagent modify, weaken or delete step 0's tests.** If the diff of a later step touches them, halt — that is the refactor changing behaviour and hiding it.
 - **Serial, never parallel.** Even when multiple AFK items sit at the same dependency level, spawn them one at a time — each subagent must start from the *post-commit* state of the previous item.
 

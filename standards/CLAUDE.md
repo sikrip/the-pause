@@ -33,7 +33,8 @@ maintains both inline as decisions crystallise; `tdd` and `diagnose` read them f
 
 Per-feature planning artifacts live under `docs/features/<feature-name>/`:
 `prd.md` (from `to-prd`), `issues/*.md` (from `to-md-issues`), and `reviews/round-NN.md`
-(from `review-change`). See **After shipping** for what happens to them once the feature lands.
+(from `review-change`; local and gitignored, never committed). See **Closing a change** for what
+happens to them before the feature merges.
 
 ## Project structure
 
@@ -186,10 +187,15 @@ footer. Plain message body, nothing after it.
 A previous "go ahead" does not extend to a follow-up commit later in the same session — unless the
 user has explicitly said "you can commit without asking from now on" in the current session.
 
-## After shipping
+## Closing a change
 
-Per-diff review cannot see cross-commit rot. A change is closed by `/close-change <name>` at the
-merge or version-bump commit; until it has run clean, the change is not done. It sets the PRD and
-ADR status, deletes the issue stubs and review rounds (git is the archive), greps the docs for
-identifiers the release removed or renamed, confirms fixtures are tracked and the full suite passes,
-and runs `/debt-check`. The fixture and suite steps stand in for CI until CI exists.
+Per-diff review cannot see cross-commit rot. A change is closed by `/close-change <name>` on its own
+branch, after a clean review round and before the merge request; until it has run clean, the change
+is not ready to merge. It greps the docs for identifiers the change removed or renamed, confirms
+fixtures are tracked and the full suite passes, runs `/debt-check`, then sets the PRD and ADR status
+and deletes the issue stubs (the merge request is the record). The fixture and suite steps
+stand in for CI until CI exists.
+
+The whole change lives on one branch — spec, code, close — and reaches the
+integration branch only through the team's merge request. Nothing is committed to the integration
+branch directly, and the skills' review does not replace the merge request's.

@@ -25,7 +25,7 @@ The user must provide a **ticket key** (`PROJ-123`, `LAP-42`, `#118`-style keys 
 ./docs/rework/<KEY>/ticket.md
 ```
 
-Relative to the project root. Create `./docs/rework/<KEY>/` if it does not exist. The file is committed to the integration branch before the work branch is cut, so the cold reviewer can read it without a tracker. It is deleted by `close-change` when the ticket closes; git history and the tracker are the archive.
+Relative to the project root. Create `./docs/rework/<KEY>/` if it does not exist. The file is committed as the first commit on the change branch `rework/<KEY>`, not to the integration branch, so the cold reviewer can read it without a tracker and it reaches the integration branch only through the merge request. It is deleted by `close-change` as the branch's last commit, which copies its Acceptance and Current behaviour sections into the merge request description; the tracker and the merge request are the archive.
 
 ## Process
 
@@ -35,7 +35,7 @@ Relative to the project root. Create `./docs/rework/<KEY>/` if it does not exist
 
 3. **Order the moves.** Break the agreed approach into steps that each leave the whole suite green and each fit one commit. Extract-a-helper, move-a-block, delete-dead-code, split-a-function are the right grain. A step that cannot be done without changing behaviour is not a step: either the rework's scope is wrong (go back to the grilling) or it is a feature in disguise (route to `to-prd`).
 
-4. Write the spec using the template below. Confirm the path to the user once written, and remind them: commit it to the integration branch, then run `implement-change <KEY>` in a fresh session.
+4. Write the spec using the template below. Confirm the path to the user once written, and remind them: cut `rework/<KEY>` from the up-to-date integration branch and commit the planning files there. The sequence that survives a planning file a teammate also changed: `git fetch` (best-effort), `git stash -u`, `git checkout --no-track -b rework/<KEY> origin/<integration_branch>` (the local `<integration_branch>` when there is no remote), `git stash pop`, then commit the spec and any `CONTEXT.md` / ADR updates. A conflict on `git stash pop` — `CONTEXT.md` is the usual one — is a real collision with a plan that merged meanwhile: resolve it before committing; the stash is kept until it is. A re-grill of a change in progress is run on its branch, which already exists: start the planning session there and commit the amended spec to it. Then run `implement-change <KEY>` on that branch in a fresh session.
 
 ## Rules for the steps
 

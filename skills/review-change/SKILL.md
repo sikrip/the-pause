@@ -1,6 +1,6 @@
 ---
 name: review-change
-description: Cold-review a change branch against the spec that defined it. Works for both lanes — a feature (spec is ./docs/features/<name>/prd.md plus its issue stubs) or a rework ticket (spec is ./docs/rework/<KEY>/ticket.md) — resolving the lane from which spec exists. Diffs the branch against the integration branch via git and writes findings — re-grill (decisions that go back to planning) vs blocking vs nits vs questions, each tagged introduced/amplified/pre-existing — to <spec-dir>/reviews/round-NN.md. Use when a branch is ready for independent review — typically in a fresh session (s3) with no planning context. Pure local-files workflow; no tracker calls. Requires a change name (feature name or ticket key) as input.
+description: Cold-review a change branch against the spec that defined it. Works for both lanes — a feature (spec is ./docs/features/<name>/prd.md plus its issue stubs) or a rework ticket (spec is ./docs/rework/<KEY>/ticket.md) — resolving the lane from which spec exists. Diffs the branch against the integration branch via git and writes findings — re-grill (decisions that go back to planning) vs blocking vs nits vs questions, each tagged introduced/amplified/pre-existing — to <spec-dir>/reviews/round-NN.md, a local file that is gitignored and never committed. Use when a branch is ready for independent review — typically in a fresh session (s3) with no planning context. Pure local-files workflow; no tracker calls. Requires a change name (feature name or ticket key) as input.
 ---
 
 # /review-change
@@ -9,24 +9,23 @@ Independent, cold review of a change branch against the spec that defined it. Th
 
 Two lanes share this skill. A **feature** is planned with `grill-change` → `to-prd` → `to-md-issues`; a **rework** (a refactor, cleanup or ticket-driven improvement that leaves behaviour unchanged) is planned with `grill-change <KEY>` → `to-rework <KEY>`. The reviewer's discipline, buckets, provenance tags and round numbering are identical in both; only the spec it reads and the route for decision-class findings differ.
 
-This is the **local-files-only** variant. The skill reads the spec from disk, diffs branches with `git`, and writes findings to a committed markdown file. It does not talk to GitLab, Jira or any tracker.
+This is the **local-files-only** variant. The skill reads the spec from disk, diffs branches with `git`, and writes findings to a local markdown file that is gitignored and never committed. It does not talk to GitLab, Jira or any tracker.
 
 ## Required input — the change name, and how the spec is resolved
 
 The user must provide a **change name**: a kebab-case feature name (e.g. `csv-export`, `rate-limit`) or a ticket key (e.g. `PROJ-123`, `LAP-42`). If invoked without one, ask before proceeding. Resolve the spec from it, in this order:
 
-1. `./docs/features/<name>/prd.md` exists → **feature lane**. `<spec-dir>` is `./docs/features/<name>/`. Spec = `prd.md` plus every `issues/*.md` in it. Branch default `feature/<name>`.
-2. `./docs/rework/<name>/ticket.md` exists → **rework lane**. `<spec-dir>` is `./docs/rework/<name>/`. Spec = `ticket.md`; its `## Steps` section is the scope and its `## Acceptance` section is the bar, which for rework normally reads "observable behaviour unchanged". If either section is missing, say so in the scope message and review against what is there — do not invent scope. Branch default `rework/<name>`.
-3. Neither exists → halt and print both paths checked. Cold review cannot proceed without a spec.
+1. `./docs/features/<name>/prd.md` exists → **feature lane**. `<spec-dir>` is `./docs/features/<name>/`. Spec = `prd.md` plus every `issues/*.md` in it.
+2. `./docs/rework/<name>/ticket.md` exists → **rework lane**. `<spec-dir>` is `./docs/rework/<name>/`. Spec = `ticket.md`; its `## Steps` section is the scope and its `## Acceptance` section is the bar, which for rework normally reads "observable behaviour unchanged". If either section is missing, say so in the scope message and review against what is there — do not invent scope.
+3. Neither exists → halt and print both paths checked and the current branch. Cold review cannot proceed without a spec, and the spec lives only on the change branch, so being on another branch is the usual cause.
 
-`<spec-dir>` is used below for everything the skill reads or writes: review rounds go to `<spec-dir>/reviews/round-NN.md`, and `<spec-dir>/reviews/` is excluded from every diff.
+`<spec-dir>` is used below for everything the skill reads or writes: review rounds go to `<spec-dir>/reviews/round-NN.md`, which the repo's `.gitignore` must cover (`docs/features/*/reviews/` and `docs/rework/*/reviews/`). Rounds are working notes between the sessions that share this checkout, and they do not travel with the branch; the durable record of the review is the merge request description `close-change` drafts from them. `<spec-dir>` is excluded from the code diff and checked on its own for drift (see "Diff scope by round").
 
-Optional positional args (in order):
+Optional positional arg:
 
-- **Change branch name.** Default per lane as above. Accepted as the second positional arg.
-- **Integration branch name.** Default: `develop`. Accepted as the third positional arg.
+- **Integration branch name.** Default: `integration_branch` in `.implement-change.config.json` when that file exists, else `develop`. Accepted as the second positional arg. Resolve it once, after a best-effort `git fetch`, and use that one ref wherever a command below says `<integration_branch>`: the remote-tracking ref (`origin/<integration_branch>`, or the same on whichever remote the change branch tracks) when `git rev-parse --verify -q` finds it, otherwise the local branch. A local integration branch that nobody fast-forwarded is stale, and a stale base makes other people's merged work look like this change's.
 
-If either branch doesn't exist locally, halt and tell the user — do not silently fall back.
+**The change branch is the branch that is checked out** (`<change_branch>` below); it takes no argument and no naming convention. The skill reads the spec and the touched files from the working tree and writes the round into it. If the checked-out branch is the integration branch, or the integration branch cannot be resolved, halt and tell the user — do not silently fall back.
 
 ## Cold-reviewer discipline
 
@@ -47,7 +46,7 @@ Before reviewing, read **only**:
 1. **The spec**, per the lane resolved above — read in full.
 2. **Prior review rounds:** every `round-*.md` under `<spec-dir>/reviews/` — read each in full if present. This prevents re-flagging issues an earlier round already raised and is how multi-round review stays coherent without an MR thread.
 3. **The diff** — and this is where round 01 and later rounds differ. See "Diff scope by round" below.
-4. **The commit log:** `git log <integration_branch>..<change_branch> --oneline` so you can see the per-issue or per-step commit progression (`implement-change` produces one commit per issue or step, prefixed `NN: <title>`).
+4. **The commit log:** `git log <integration_branch>..<change_branch> --oneline` so you can see the per-issue or per-step commit progression (`implement-change` produces one commit per issue or step, prefixed `NN: <title>`). Commits that touch only `<spec-dir>`, `CONTEXT.md` and `docs/adr/` are the planning session's: the first ones on the branch, plus any a re-grill added later.
 5. **Project domain docs cited by the spec or visible in the diff** (e.g. `docs/architecture.md`, `docs/storage.md`, `CLAUDE.md`, files under `docs/adr/`) — read only those directly relevant to the changes. Do not preload the entire `docs/` tree.
 
 **Do NOT read** the codebase exhaustively. Read specific files that the diff touches when you need to verify a finding — but do not go on a fishing expedition outside the diff scope.
@@ -62,7 +61,21 @@ Before reviewing, read **only**:
 2. **Every file the delta touches, read whole.** A fix routinely breaks something outside its own hunk — a pre-flight that no longer guards the join it was written for, a docstring that now contradicts the code beneath it. The delta shows you the change; the whole file shows you what the change no longer fits.
 3. **Re-verification of every prior finding, at its recorded location.** Go to the `**Location:**` line of each finding in each prior round and confirm the current state. This is a required step, not a courtesy — it is what the "Carried over" section is built from, and it is the highest-yield reading in a later round.
 
-**Exclude `<spec-dir>/reviews/` from the diff** in every round. Those are the reviewer's own output; reviewing them is noise that grows linearly with round count.
+**Exclude `<spec-dir>` from the code diff** in every round (`git diff ... -- . ':(exclude)<spec-dir>'`). The change branch carries its own spec, because the planning session commits it there and not to the integration branch. The spec is what you review against, read in preload step 1, not a change under review.
+
+**Check the spec for drift, separately, in every round.** Because the spec lives on the branch, the implementer can edit the bar it is measured against. List the commits that touch it: `git log <integration_branch>..<change_branch> --oneline -- <spec-dir>` (from round 02, `<last-reviewed-head>..<change_branch>`). A commit that touches only planning files is the planning session's, and what it wrote is the spec; `implement-change` never produces one, because it halts when a subagent edits the spec. A commit that changes the spec together with code or tests — an `NN:` item commit above all — is the implementation rewriting its own acceptance: read that commit's diff of `<spec-dir>`, review against the spec as it stood before it, and report the edit as a Blocking finding, or Re-grill if the edit records a decision the spec did not contain.
+
+`CONTEXT.md` and `docs/adr/` changes on the branch are planning decisions as well. They stay in the diff so you can check the code against them, but a disagreement with what one of them decides is a Re-grill finding, never a Nit against the document.
+
+**Sync round — the last round, after the integration branch was merged in.** The integration branch moves while a change is in progress. Once a round has nothing left to fix, the user merges it into the change branch and asks for one more round, so that what gets closed and sent to the merge request is the code as it will actually land. The sync is a **merge, never a rebase**: a rebase rewrites the `**Head reviewed:**` SHAs every later round narrows from. If the change branch already contains the integration branch (`git merge-base --is-ancestor <integration_branch> <change_branch>`) and no merge from it happened since the last round, there is nothing to sync and this is not a sync round. A sync merge that is clean and overlaps nothing the branch changed needs no round either: `close-change` checks that itself and accepts it. The sync round is for a merge with a conflict or an overlap.
+
+You are in a sync round when `git log --merges --first-parent <last-reviewed-head>..<change_branch>` shows a merge of the integration branch. `--first-parent` matters: without it the list fills with other people's merges into the integration branch, which are not sync merges. A plain `git diff <last-reviewed-head>..<change_branch>` would then contain everything that landed on the integration branch — other people's reviewed work, not this change. Do not read it. The delta of a sync round is three bounded things instead:
+
+1. **The branch's own commits since the last round:** `git log --no-merges --first-parent <last-reviewed-head>..<change_branch>`, each with its diff. These are fixes, reviewed like any later-round delta.
+2. **The conflict resolutions:** `git show --remerge-diff <merge-sha>` for each sync merge. It shows what the committed merge differs by from the automatic one — every conflict and how it was resolved, including one settled by taking a whole side. An empty one means the merge was clean. Do not use a plain `git show`: its combined diff is empty for a conflict resolved by picking one side, which is exactly the case that can drop work.
+3. **The overlap:** files both sides changed. Intersect `git diff --name-only <integration_branch>...<last-reviewed-head>` (what the branch touched when it was last reviewed — measured there, because a file whose branch changes were resolved away no longer shows up at the new head) with `git diff --name-only <merge-base-before>..<merge-base-after>` (what arrived), where the two merge bases are `git merge-base <integration_branch> <last-reviewed-head>` and `git merge-base <integration_branch> <change_branch>`. Read each of those files whole: a merge with no textual conflict can still break the branch — a caller that arrived for a function the branch renamed, a second writer to state the branch assumed it owned. In each, also confirm the branch's reviewed change is still there; reviewed work dropped by a resolution is a Blocking finding.
+
+The re-verification of prior findings (item 3 of the narrowed round) applies unchanged. Findings in code that arrived from the integration branch and that the branch does not touch are `pre-existing`.
 
 Why the narrowing: without it, round N re-reads the whole branch — including N−1 rounds of review files and every doc rewrite the fixes produced — while the thing that actually matters, *did the last fix hold*, is never a mandated step. A later round that costs less and looks harder at the delta finds fix-induced regressions faster than a half-hearted full sweep does.
 
@@ -75,7 +88,8 @@ If you want a fresh full sweep at round N, that is a deliberate act: the user as
 Before drafting findings, post a single short message to the conversation (this is for the human running the s3 session — not the review file) with:
 
 - Change name, lane, spec path, change branch, integration branch.
-- Which diff scope you ran — full sweep (round 01, or requested) or narrowed — and the `<last-reviewed-head>..<change_branch>` range if narrowed.
+- Which diff scope you ran — full sweep (round 01, or requested), narrowed, or sync round — with the `<last-reviewed-head>..<change_branch>` range if narrowed, or the merge SHA and the number of overlap files if a sync round.
+- Whether the change branch contains the integration branch. If it does not and this round is heading for `merge-ready`, say that a sync comes before `close-change`, and that it costs another round only if the merge has a conflict or touches a file the branch also changed.
 - File-list summary from the `--stat` of that diff.
 - Number of commits in the branch (from the `git log` above).
 - Number of prior review rounds loaded.
@@ -86,6 +100,8 @@ Keep it under 10 lines.
 ### 2. Determine the round number
 
 The new review file is `<spec-dir>/reviews/round-NN.md`, where `NN` is the next zero-padded ordinal after the highest existing `round-NN.md` (or `01` if none exist). Compute it from the filenames already present; do not rely on conversation memory.
+
+If none exist but the branch has commits after its last `NN:` item commit that touch code or tests, earlier rounds were probably written in another checkout: rounds are local files. Say so and ask before starting at `01` — the user either copies that checkout's `reviews/` directory here, or confirms a fresh full sweep with no carried-over findings.
 
 ### 3. Draft findings, structured
 
@@ -142,6 +158,7 @@ Show the user the full draft of the new round in the conversation (re-grill / bl
 On `write`:
 
 - Create `<spec-dir>/reviews/` if it does not exist.
+- Confirm the round's path is ignored (`git check-ignore -q <path>`). If it is not, **stop before writing** and tell the user to add `docs/features/*/reviews/` and `docs/rework/*/reviews/` to `.gitignore` and commit that on the change branch, then re-run the round so it records the new head: an unignored round is swept into the next item commit by `implement-change`'s `git add -A`.
 - Write the findings to `<spec-dir>/reviews/round-NN.md` using the template below.
 - Print the file path and the one-line verdict to the conversation.
 
@@ -159,7 +176,7 @@ If the user says `hold` or asks for revisions, do not write — wait for further
 **Integration branch:** `<integration-branch>`
 **Commits reviewed:** `<short-sha-first>..<short-sha-last>` (`N` commits)
 **Head reviewed:** `<full-sha-of-change-branch-head>` *(the next round narrows from this)*
-**Diff scope:** full sweep | narrowed to `<last-reviewed-head>..<head>`
+**Diff scope:** full sweep | narrowed to `<last-reviewed-head>..<head>` | sync round — `<integration-branch>` merged at `<merge-sha>`
 **Verdict:** merge-ready | revisions-needed | needs-decision | awaiting-answers
 
 ## Re-grill
@@ -231,7 +248,7 @@ If the user says `hold` or asks for revisions, do not write — wait for further
 ## Hard constraints
 
 - **Never modify code.** This skill writes one file under `<spec-dir>/reviews/` and nothing else.
-- **Never commit, push, merge, or rebase.** Writing the round file is the user's call to commit when they're ready; the skill never runs `git commit`.
+- **Never commit, push, merge, or rebase.** The round file is local and gitignored; nobody commits it.
 - **Never read planning or implementation transcripts.** See cold-reviewer discipline above.
 - **Never invent file paths, function names, or invariants.** If the diff references something you can't verify, flag it as a question.
 - **Never collapse findings to save space.** One finding per item; the structure is the point.
@@ -244,7 +261,7 @@ If the user says `hold` or asks for revisions, do not write — wait for further
 - Skim the test changes for scenario-vs-implementation framing per the project's testing philosophy. A test that mirrors implementation structure is a finding (usually a nit, occasionally blocking if it masks real bugs). In the rework lane, also check that the characterisation tests the spec names landed **before** the refactor commits in the log.
 - Domain glossary drift is a finding. If the spec uses one term and the diff uses a synonym, flag it.
 - Don't be precious about brevity in the findings themselves — be precise. Be brief about everything else (the scope summary, the verdict, your own commentary).
-- The verdict line is for the human running s3, not a contractual gate. `needs-decision` means there is a Re-grill finding and the branch should pause on anything downstream of it; `revisions-needed` means s2 has in-branch work to do; `awaiting-answers` means s1 (or the user) owes the reviewer information; `merge-ready` means the reviewer would approve if approval were the skill's job. `needs-decision` outranks the others — report it even when there is also in-branch work.
+- The verdict line is the reviewer's opinion for the human running s3, not an approval — that is the merge request's. It gates one thing: `close-change` will not close unless the latest round reads `merge-ready`, or the user overrides. `needs-decision` means there is a Re-grill finding and the branch should pause on anything downstream of it; `revisions-needed` means s2 has in-branch work to do; `awaiting-answers` means s1 (or the user) owes the reviewer information; `merge-ready` means the reviewer would approve if approval were the skill's job — it is the cue to run `close-change` and open the merge request, where the approval actually happens. `needs-decision` outranks the others — report it even when there is also in-branch work.
 - `merge-ready` is reachable with open findings. A round whose only remaining findings are `pre-existing` nits is merge-ready, and saying so is the point: a review that can never print `merge-ready` is not a quality gate, it is a treadmill.
 
 ## Cheat sheet
