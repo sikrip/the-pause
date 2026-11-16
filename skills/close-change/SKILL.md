@@ -48,7 +48,9 @@ Optional positional arg:
 
 ## Preconditions — halt on any failure
 
-1. The spec resolves (above).
+1. The spec resolves (above), and the change is not closed already: a PRD that carries
+   `> Status: implemented` means the close commit is on this branch. Halt and point at "After the
+   close commit" below; this skill is not re-run on a closed branch.
 2. The current branch is not the integration branch. The branch that is checked out, and on which
    the spec resolved, is the change branch; the close is a commit on it.
 3. The change has been reviewed as it stands: the highest `<spec-dir>/reviews/round-NN.md` carries
@@ -108,8 +110,10 @@ Grep for each across `docs/`, `README*`, `CLAUDE.md`, `CONTEXT.md` and `.env.exa
 `<spec-dir>` itself and `docs/adr/`. Every hit is a stale claim. List them with file and line; do
 not fix them silently. The user decides which to fix now (`fix`) and which to file.
 
-Separately, grep the same paths for **unfilled template placeholders** — angle-bracket markers a
-slice left for a human to complete, e.g. `<to measure`, `<deploy date`, `<run id`, `<TBD`, `<owner`.
+Separately, grep the same paths except `CLAUDE.md` — the standards write their own examples with
+placeholders, so it would report one on every close — for **unfilled template placeholders**:
+angle-bracket markers a slice left for a human to complete, e.g. `<to measure`, `<deploy date`,
+`<run id`, `<TBD`, `<owner`.
 A change whose spec deferred a figure to deploy day closes over them silently otherwise, because
 they are additions and so invisible to the removed-identifier grep above. Report every hit. A
 marker that can be filled now means the change is not closed. One that can only be filled after the
@@ -123,10 +127,12 @@ in the merge request description, with who fills it.
   untracked or missing. This is the failure that silently disables e2e suites after a refactor.
 - **Suite:** run **every tier**, e2e included. This is the merge gate, and it is not a repeat of
   `implement-change`'s gates: the sync merge, and any commit made outside that skill, are code no
-  full gate has seen. Discover the command in this order: `tests.<tier>.all` in
-  `.implement-change.config.json` (run each of the three tiers it declares), then the project
-  `CLAUDE.md` commands section, `package.json` scripts, `pyproject.toml` / pytest, Gradle or Maven
-  wrapper. Say which you picked, and report each tier with its own result and count.
+  full gate has seen. The command for each tier is `tests.<tier>.all` in
+  `.implement-change.config.json`. For a tier the config gives no command for, do as
+  `implement-change` does: draft one from what the project documents (the project `CLAUDE.md`
+  commands section, `package.json` scripts, `pyproject.toml` / pytest, Gradle or Maven wrapper) and
+  ask the user to confirm or correct it before running anything. Name the commands in step 1's
+  message, and report each tier with its own result and count.
   The trap on a tiered repo is a discovered command that quietly covers the fast tier only — a bare
   `pytest` can deselect every slow test and come back green in a second. If the counts do not add up
   to the whole suite, you ran the wrong thing: say so rather than reporting a pass.

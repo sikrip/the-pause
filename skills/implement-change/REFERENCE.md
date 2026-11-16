@@ -52,15 +52,14 @@ The `features` map is keyed by change name in both lanes — a rework ticket key
 | `integration_branch` | `develop` | The branch the change branch was cut from in the planning session and the merge request will target. How it is resolved to a ref is in SKILL.md's pre-flight. |
 | `tests.<tier>.all` | see below | Runs the whole tier. |
 | `tests.<tier>.select` | the tier's `all` with `{tests}` appended | Runs named test files in that tier. `{tests}` is replaced by the space-separated paths. |
-| `test_command` *(legacy)* | unset | Pre-tier config. When `tests` is absent and this is set, it runs the item's new tests. |
-| `test_command_all` *(legacy)* | unset | Pre-tier config. When `tests` is absent and this is set, it runs before every commit and there is no end-of-run gate — the old behaviour, preserved so existing configs keep working. |
+| `test_command` / `test_command_all` *(legacy)* | unset | Pre-tier config, read only when `tests` is absent so existing configs keep working. What each runs is in SKILL.md's "Test tiers" section. |
 | `features.<name>.issue_dir` | `docs/features/<name>/issues/` (falls back to `temp/issues/<name>/`) | Feature lane only. Directory containing the issue stubs. |
 | `features.<name>.context_docs` | feature lane: auto-discover `docs/features/<name>/prd.md`, falling back to `temp/prds/<name>_prd.md` and `docs/<name>*.md`; rework lane: `docs/rework/<name>/ticket.md` | Paths attached to every subagent prompt. |
 | `features.<name>.feature_branch_template` | `feature/{feature}` | Branch template in the feature lane. Placeholder: `{feature}` (the change name). |
 | `features.<name>.rework_branch_template` | `rework/{feature}` | Branch template in the rework lane. Placeholder: `{feature}` (the change name, i.e. the ticket key). |
 | `features.<name>.commit_template` | `{nn}: {title}` | Template for the per-item commit subject line. Placeholders: `{nn}` (zero-padded item number), `{slug}` (kebab-cased title), `{title}` (the item's title), `{feature}` (change name). |
 
-**No built-in test command.** With no `tests` block and no legacy keys, and for any tier a `tests` block leaves out, the tier is resolved as SKILL.md's "Test tiers" section says.
+**No built-in test command.** With no `tests` block and no legacy keys, and for any tier a `tests` block leaves out, the user is asked for the command as SKILL.md's "Test tiers" section says.
 
 With no config file at all: the integration branch is `develop`, the branch is `feature/<name>` or `rework/<name>`, the commit subject is `<NN>: <item title>`, and the change name comes from the argument or single-change auto-detect.
 
@@ -71,7 +70,7 @@ With no config file at all: the integration branch is `develop`, the branch is `
 - `## Acceptance` — the bar for the whole change. For rework it normally states that observable behaviour is unchanged and names the characterisation tests that define "unchanged". Attached to every subagent prompt.
 - `## Steps` — one `### N. <title>` subsection per work item, `N` starting at 0. The body runs to the next `###` or the end of the section. `### 0.` is always the characterisation tests and must be present.
 
-Each step body may carry the same markers as an issue stub: `Type: HITL`, `Verification: HITL`, a `## Blocked by` line (ignored in the rework lane — steps are already ordered). Steps are never inferred from the ticket prose.
+Each step body may carry the same markers as an issue stub (matched as "HITL detection" below says): `Type: HITL`, `Verification: HITL`, a `## Blocked by` line (ignored in the rework lane — steps are already ordered). Steps are never inferred from the ticket prose.
 
 ## Subagent prompt template
 
@@ -90,7 +89,7 @@ The `description` field stays short. The heavy briefing goes in `prompt`.
 
 The `<bundle>` is assembled in this exact order:
 
-1. **The work item.** Feature lane: the full issue stub text, inline. Rework lane: the ticket's one-paragraph summary, the full `## Acceptance` section, then the full text of the current step, inline — in that order, so the subagent reads the bar before the task.
+1. **The work item.** Feature lane: the full issue stub text, inline. Rework lane: the spec's title line (`# <KEY> — <ticket title>`), the full `## Acceptance` section, then the full text of the current step, inline — in that order, so the subagent reads the bar before the task.
 2. A context line. Resolve `<context_docs>` from config or auto-discovery. If non-empty, emit:
    ```
    Context: read <comma-separated paths> before starting. Read the project root CLAUDE.md too if present.
@@ -175,7 +174,8 @@ The `<bundle>` is assembled in this exact order:
    characterisation tests from step 0 are the definition of "unchanged": never
    modify, weaken or delete them. Run them before you finish, whatever tier they
    are in: <step-0 test files>. If one fails, the refactor is wrong, not the
-   test. A step after step 0 normally adds no tests of its own. Do not widen
+   test. Their fixtures are protected the same way. A step after step 0
+   normally adds no tests of its own. Do not widen
    scope beyond this step. If the step cannot be completed without changing
    behaviour, stop and report that as an unsatisfied acceptance criterion rather
    than changing it.
@@ -236,7 +236,8 @@ Path: `.claude/implement-change-state.json` (gitignored).
   "integration_branch": "develop",
   "issues": {
     "00": { "status": "merged",        "commit": "abc123" },
-    "01": { "status": "in-review",     "halt_reason": "full suite: 2 failures in test_orders_merge.py" },
+    "01": { "status": "in-review",     "halt_reason": "unit tier: 2 failures in test_orders_merge.py",
+            "report": "<the agent's return message, verbatim>" },
     "02": { "status": "pending" }
   },
   "current_issue": "01",
@@ -244,14 +245,15 @@ Path: `.claude/implement-change-state.json` (gitignored).
 }
 ```
 
-`lane` is `feature` or `rework`; `spec` is the resolved spec path. The `issues` map holds items in both lanes (the key name is kept for compatibility with existing state files). Statuses: `pending` | `running` | `in-review` | `merged` | `skipped` | `hitl-pending` | `blocked-on-hitl` | `pending-verification`.
+`lane` is `feature` or `rework`; `spec` is the resolved spec path. The `issues` map holds items in both lanes (the key name is kept for compatibility with existing state files). Statuses: `pending` | `running` | `in-review` | `merged` (committed) | `done` (a HITL decision or out-of-repo action, no commit) | `skipped` | `hitl-pending` | `blocked-on-hitl` | `pending-verification`.
 
-Optional fields: an item committed with `merge anyway` also carries `"override": "<reason>"`; after the end-of-run gate the file carries `"tiers": {"integration": "passed", "e2e": "failed"}`. `--continue` resumes at `current_issue`. Fix mode does not use this file.
+Optional fields: `report` holds the agent's return message for the item being verified, so its new test files, open questions and unsatisfied criteria survive into another session; an item committed with `merge anyway` carries `"override": "<reason>"`; once the end-of-run gate has run the file carries `"tiers": {"integration": "passed", "e2e": "failed"}`, and a red tier there is the halt `--continue` resumes at when every item is finished. Otherwise `--continue` resumes at `current_issue`. Fix mode does not use this file.
 
 ## HITL detection
 
-An item is HITL if its stub or step body contains any of:
+Both markers are matched at the start of a line, with or without bold on the label — the issue template writes `**Type:** HITL`, the rework template `Type: HITL`:
 
-- `Type: HITL` in the body
-- `**HITL**` as a literal token
-- A `## HITL` section header (a `#### HITL` header inside a step body counts too)
+- **Decision gate:** `grep -E '^\*{0,2}Type:\*{0,2} +HITL'`
+- **Verification gate:** `grep -E '^\*{0,2}Verification:\*{0,2} +HITL'`
+
+An item is also a decision gate if its stub or step body contains `**HITL**` as a literal token, or a `## HITL` section header (a `#### HITL` header inside a step body counts too).
