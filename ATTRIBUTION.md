@@ -43,6 +43,7 @@ These were written for this methodology and are not derived from anyone else's s
 - `close-change`
 - `to-rework` — the rework-lane twin of `to-prd`; structure mirrors it, content is ours
 - `mutation-testing`
+- `walk-me-through`
 
 ## Slash commands, standards, and hooks
 

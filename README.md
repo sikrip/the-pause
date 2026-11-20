@@ -290,6 +290,7 @@ ordinary change gets no cold review from `review-change`, only the merge request
 | `close-change` | Closes a reviewed change on its branch, before the merge request: docs grep, every test tier, debt check, status headers, prune specs, draft MR description. |
 | `handoff` | Compacts the current session into a hand-off doc. Ad hoc, not part of the lanes: use it to pass work to another session or repo, or when a session's context gets large (say 400k+ tokens): `/handoff`, `/clear`, and carry on from the doc. |
 | `diagnose` | A debugging loop for hard bugs and perf regressions: reproduce, minimise, hypothesise, instrument, fix, regression-test. |
+| `walk-me-through` | Lays out Claude's understanding of a problem one short step per turn, marking what was checked and what was inferred, with the recommendation last. Ad hoc, not part of the lanes. |
 | `/check` | Runs the quality gate: lint, format, type-check, security scan, tests. Python/Databricks only. |
 | `/debt-check` | Flags cognitive debt in current work: magic numbers, undocumented business rules, unvalidated assumptions. |
 | `/debt-review` | Turns `.claude/cognitive_debt.md` into a prioritised action list. |
@@ -310,11 +311,11 @@ the-pause/
 │       ├── testing.md                 # stack-agnostic testing standards (always install)
 │       ├── python-tooling.md          # Python: ruff/pyright/bandit/pytest conventions
 │       └── databricks-pipelines.md    # PySpark / Delta / DAB config, patterns, deployment
-├── skills/                            # 11 skills (see ATTRIBUTION.md for provenance)
+├── skills/                            # 12 skills (see ATTRIBUTION.md for provenance)
 │   ├── tdd/  diagnose/  handoff/                           # Matt Pocock's (vendored)
 │   ├── to-prd/  to-md-issues/                              # derived from Matt Pocock's
 │   ├── to-rework/                                          # ours (rework-lane twin of to-prd)
-│   └── grill-change/  implement-change/  review-change/  close-change/  mutation-testing/   # ours
+│   └── grill-change/  implement-change/  review-change/  close-change/  mutation-testing/  walk-me-through/   # ours
 ├── commands/
 │   ├── check.md  debt-check.md  debt-review.md             # active
 │   └── _deprecated/research.md  _deprecated/spec.md        # see "Evolution" below
