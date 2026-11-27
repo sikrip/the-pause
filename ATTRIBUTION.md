@@ -45,11 +45,12 @@ These were written for this methodology and are not derived from anyone else's s
 - `mutation-testing`
 - `walk-me-through`
 
-## Slash commands, standards, and hooks
+## Slash commands, standards, hooks, and the status line
 
 The slash commands (`/check`, `/debt-check`, `/debt-review`, and the deprecated
-`/research`, `/spec`), the engineering standards (`standards/`), and the decision-capture hook
-(`hooks/capture_decisions.sh`) are ours.
+`/research`, `/spec`), the engineering standards (`standards/`), the decision-capture hook
+(`hooks/capture_decisions.sh`), and the status line script
+(`statusline/statusline-command.sh`) are ours.
 
 ---
 

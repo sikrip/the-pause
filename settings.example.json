@@ -1,5 +1,11 @@
 {
-  "_comment": "Example Claude Code settings for the the-pause methodology. Copy the bits you want into your project's .claude/settings.json (or ~/.claude/settings.json). The two hooks below are the only project-specific behaviours this methodology relies on. Personal tooling (rtk, custom statusline) and external marketplace plugins from the author's machine are intentionally omitted — add your own if you use them.",
+  "_comment": "Example Claude Code settings for the the-pause methodology. Copy the bits you want into your project's .claude/settings.json (or ~/.claude/settings.json). The two hooks below are the only project-specific behaviours this methodology relies on; the status line is optional. Personal tooling (rtk) and external marketplace plugins from the author's machine are intentionally omitted — add your own if you use them.",
+
+  "statusLine": {
+    "_comment": "Optional: shows model, directory, git branch and the live context size, which tells you when a session is due a handoff. Adjust the path to wherever you place the script. Needs jq and bc.",
+    "type": "command",
+    "command": "bash ~/.claude/statusline-command.sh"
+  },
 
   "hooks": {
     "PostToolUse": [

@@ -304,7 +304,7 @@ the-pause/
 ├── README.md                          # this file
 ├── LICENSE                            # MIT, for everything original here
 ├── ATTRIBUTION.md                     # who authored which skill, plus upstream licence notice
-├── settings.example.json              # hooks + sensible defaults to copy
+├── settings.example.json              # hooks, status line + sensible defaults to copy
 ├── standards/
 │   ├── CLAUDE.md                      # stack-agnostic methodology + standards (repo root)
 │   └── rules/                         # topic rules → <repo>/.claude/rules/
@@ -319,8 +319,10 @@ the-pause/
 ├── commands/
 │   ├── check.md  debt-check.md  debt-review.md             # active
 │   └── _deprecated/research.md  _deprecated/spec.md        # see "Evolution" below
-└── hooks/
-    └── capture_decisions.sh           # appends DECISION/ASSUMPTION/DEBT markers to cognitive_debt.md
+├── hooks/
+│   └── capture_decisions.sh           # appends DECISION/ASSUMPTION/DEBT markers to cognitive_debt.md
+└── statusline/
+    └── statusline-command.sh          # model, directory, branch and live context size
 ```
 
 ---
@@ -353,6 +355,11 @@ the-pause/
    `PostToolUse` entries from `settings.example.json` into `.claude/settings.json`. It collects
    `# DECISION:`, `# ASSUMPTION NEEDED:` and `# DEBT:` comments into `.claude/cognitive_debt.md`
    (Python files only, for now).
+
+5. **Status line (optional).** Copy or symlink `statusline/statusline-command.sh` to
+   `~/.claude/statusline-command.sh` and merge the `statusLine` entry from `settings.example.json`
+   into your settings. It shows the model, directory, git branch and the live context size, which
+   is how you see that a session is due a handoff. Needs `jq` and `bc`.
 
 ---
 
